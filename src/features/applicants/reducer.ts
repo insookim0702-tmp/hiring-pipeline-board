@@ -62,6 +62,15 @@ export function applicantsReducer(
       if (current === undefined) return state
       if (current.stage === action.toStage) return state
 
+      /**
+       * 이미 진행 중인 이동이 있으면 **기존 스냅샷을 그대로 유지한다.**
+       *
+       * 여기서 `current`(= 직전 낙관적 상태)를 새 스냅샷으로 잡으면,
+       * 빠르게 두 번 옮긴 뒤 실패했을 때 원래 단계가 아니라 **중간 단계로 롤백**된다.
+       * 롤백 기준은 "이 카드의 이동이 시작된 시점"이어야 한다.
+       */
+      const existing = state.pendingMoves[action.id]
+
       return {
         ...state,
         // 낙관적 반영: 응답을 기다리지 않고 UI를 먼저 바꾼다.
@@ -70,7 +79,7 @@ export function applicantsReducer(
           ...state.pendingMoves,
           [action.id]: {
             // 반영 *전* 상태에서 캡처한다. 이 순서가 롤백의 정확성을 결정한다.
-            snapshot: current,
+            snapshot: existing?.snapshot ?? current,
             toStage: action.toStage,
           },
         },

@@ -10,9 +10,10 @@ import {
 } from 'react'
 import type { Applicant, Stage } from '../../domain/applicant'
 import { stageLabel } from '../../domain/stages'
-import { ConflictError, listApplicants, moveApplicantStage } from '../../mocks'
+import { listApplicants, moveApplicantStage } from '../../mocks'
 import { useAnnouncer } from '../feedback/AnnouncerProvider'
 import { useToastApi } from '../feedback/ToastProvider'
+import { createMoveQueue, type MoveQueue } from './moveQueue'
 import { applicantsReducer } from './reducer'
 import { initialApplicantsState, type ApplicantsState } from './types'
 
@@ -83,61 +84,98 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
     stateRef.current = state
   }, [state])
 
-  const moveStage = useCallback(
-    (id: string, toStage: Stage) => {
-      const applicant = stateRef.current.byId[id]
-      if (applicant === undefined) return
-      // 같은 단계로의 이동은 서버에 보낼 필요가 없다.
-      if (applicant.stage === toStage) return
+  /**
+   * 카드별 이동 요청 큐.
+   *
+   * 같은 카드의 요청을 직렬화하고, 대기 중 의도는 마지막 것만 남기고,
+   * 낡은 응답으로 화면을 확정하지 않는다. 상세는 `moveQueue.ts`.
+   *
+   * version을 스토어에서 읽지 않고 큐가 직접 들고 가는 이유:
+   * 큐는 응답 직후 곧바로 다음 요청을 보내는데, 그 시점에는 React가 아직
+   * 커밋하지 않아 스토어를 읽으면 낡은 version이 나온다.
+   */
+  /**
+   * 큐 인스턴스는 ref에 담고 **effect에서 생성**한다.
+   *
+   * `useMemo`로 만들었더니 React Compiler 린트가 막았다:
+   * "Passing a ref to a function may read its value during render".
+   * `readVersion`이 `stateRef`를 캡처하니 렌더 중 ref 접근으로 판정될 수 있다는 지적이다.
+   * 실제로는 요청 시점에만 읽지만, 규칙을 끄는 대신 생성 자체를 렌더 밖으로 옮겼다.
+   */
+  const queueRef = useRef<MoveQueue | null>(null)
 
-      const name = applicant.name
-      const fromLabel = stageLabel(applicant.stage)
-      const toLabel = stageLabel(toStage)
+  useEffect(() => {
+    queueRef.current = createMoveQueue({
+      readVersion: (id) => stateRef.current.byId[id]?.version,
+      send: (id, toStage, expectedVersion) => moveApplicantStage({ id, toStage, expectedVersion }),
 
-      // 1) UI를 먼저 바꾼다. 스냅샷 캡처는 리듀서가 반영 전 상태에서 수행한다.
-      dispatch({ type: 'MOVE_OPTIMISTIC', id, toStage })
+      onConfirmed: (_id, applicant) => {
+        dispatch({ type: 'MOVE_CONFIRMED', applicant })
+        announce(`${applicant.name} 님을 ${stageLabel(applicant.stage)} 단계로 이동했습니다.`)
+      },
 
-      // 2) 서버에 보낸다. 실패하면 되돌린다.
-      moveApplicantStage({ id, toStage, expectedVersion: applicant.version }).then(
-        (updated) => {
-          dispatch({ type: 'MOVE_CONFIRMED', applicant: updated })
-          announce(`${name} 님을 ${toLabel} 단계로 이동했습니다.`)
-        },
-        (error: unknown) => {
-          if (error instanceof ConflictError) {
-            // 버전 충돌: 롤백이 아니라 서버 상태로 재동기화한다.
-            // 내가 들고 있던 스냅샷도 이미 낡았기 때문이다.
-            dispatch({ type: 'MOVE_RESYNC', applicant: error.current })
-            const serverLabel = stageLabel(error.current.stage)
-            toast.push({
-              tone: 'warning',
-              title: `${name} 님의 단계가 이미 변경되었습니다`,
-              description: `다른 변경이 먼저 반영되어 ${serverLabel}(으)로 맞췄습니다.`,
-            })
-            announce(
-              `${name} 님 이동 실패. 다른 변경이 먼저 반영되어 ${serverLabel} 단계로 맞췄습니다.`,
-              'assertive',
-            )
-            return
-          }
+      onConflict: (_id, serverCurrent) => {
+        // 롤백이 아니라 재동기화. 내가 들고 있던 스냅샷도 이미 낡았다.
+        dispatch({ type: 'MOVE_RESYNC', applicant: serverCurrent })
+        const serverLabel = stageLabel(serverCurrent.stage)
+        toast.push({
+          tone: 'warning',
+          title: `${serverCurrent.name} 님의 단계가 이미 변경되었습니다`,
+          description: `다른 변경이 먼저 반영되어 ${serverLabel}(으)로 맞췄습니다.`,
+        })
+        announce(
+          `${serverCurrent.name} 님 이동 실패. 다른 변경이 먼저 반영되어 ${serverLabel} 단계로 맞췄습니다.`,
+          'assertive',
+        )
+      },
 
-          dispatch({ type: 'MOVE_ROLLBACK', id })
-          announce(
-            `${name} 님을 ${toLabel} 단계로 옮기지 못했습니다. ${fromLabel} 단계로 되돌렸습니다.`,
-            'assertive',
+      onFailed: (id, error, intendedStage) => {
+        const name = stateRef.current.byId[id]?.name ?? '지원자'
+        const restored = stateRef.current.pendingMoves[id]?.snapshot.stage
+        dispatch({ type: 'MOVE_ROLLBACK', id })
+
+        const toLabel = stageLabel(intendedStage)
+        const fromLabel = restored === undefined ? '이전' : stageLabel(restored)
+        announce(
+          `${name} 님을 ${toLabel} 단계로 옮기지 못했습니다. ${fromLabel} 단계로 되돌렸습니다.`,
+          'assertive',
+        )
+        toast.push({
+          tone: 'error',
+          title: `${name} 님을 ${toLabel}(으)로 옮기지 못했습니다`,
+          description: `${fromLabel}(으)로 되돌렸습니다. ${
+            error instanceof Error ? error.message : '알 수 없는 오류'
+          }`,
+        })
+      },
+
+      onCoalesced: (id, skippedStage) => {
+        /**
+         * 병합으로 서버에 보내지 않은 중간 단계.
+         * `stageHistory`에 남지 않으므로 조용히 넘기지 않고 남겨 둔다.
+         * (사용자에게 토스트로 알리면 소음이라 개발 로그로만)
+         */
+        if (import.meta.env.DEV) {
+          console.debug(
+            `[moveQueue] ${id}: 중간 단계 ${stageLabel(skippedStage)}를 병합해 서버에 보내지 않음`,
           )
-          toast.push({
-            tone: 'error',
-            title: `${name} 님을 ${toLabel}(으)로 옮기지 못했습니다`,
-            description: `${fromLabel}(으)로 되돌렸습니다. ${
-              error instanceof Error ? error.message : '알 수 없는 오류'
-            }`,
-          })
-        },
-      )
-    },
-    [toast, announce],
-  )
+        }
+      },
+    })
+  }, [announce, toast])
+
+  const moveStage = useCallback((id: string, toStage: Stage) => {
+    const applicant = stateRef.current.byId[id]
+    if (applicant === undefined) return
+    // 같은 단계로의 이동은 서버에 보낼 필요가 없다.
+    if (applicant.stage === toStage) return
+
+    // 1) UI를 먼저 바꾼다. 스냅샷 캡처는 리듀서가 반영 전 상태에서 수행하고,
+    //    이미 진행 중인 이동이 있으면 기존 스냅샷을 유지한다.
+    dispatch({ type: 'MOVE_OPTIMISTIC', id, toStage })
+    // 2) 큐에 넣는다. 같은 카드는 순차 실행, 다른 카드는 병렬.
+    queueRef.current?.enqueue(id, toStage)
+  }, [])
 
   const dispatchFetched = useCallback((applicant: Applicant) => {
     dispatch({ type: 'APPLICANT_FETCHED', applicant })

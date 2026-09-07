@@ -162,13 +162,19 @@ describe('연속 이동에서 version 최신성', () => {
 })
 
 /**
- * 아래 두 블록은 **현재 구현에서 실패한다.** 의도적으로 실패한 채 커밋한다.
+ * 커밋 7에서 빨간 상태로 커밋했던 두 블록.
+ * 커밋 11(카드별 요청 큐)에서 통과시켰다.
  *
- * `it.skip`이나 `it.todo`로 숨기지 않는 이유: 숨기면 "구현이 안 된 것"과
- * "테스트를 안 쓴 것"이 구별되지 않는다. 빨간 상태로 두면 커밋 히스토리에
- * 무엇이 미해결인지 그대로 남는다. 커밋 11(race-condition)에서 통과시킨다.
+ * 다만 4번은 **시나리오 자체를 다시 써야 했다.** 원래 테스트는
+ * "같은 카드에 두 요청이 동시에 떠 있는 상태"를 전제로 늦게 온 응답을 흘려보냈는데,
+ * 직렬화가 들어간 뒤로는 그 상태를 공개 API로 만들 수 없다 —
+ * 같은 카드의 두 번째 요청은 첫 번째가 끝난 뒤에야 나간다.
+ * 테스트를 느슨하게 고쳐 통과시킨 것이 아니라, 실패 모드가 구조적으로 사라져
+ * 원래 전제가 도달 불가능해진 것이다. 그래서 같은 불변식을
+ * (a) 도달 가능한 수준(직렬화 관찰) 과 (b) 큐 단위 테스트(`moveQueue.test.ts`)로
+ * 나눠 검증한다.
  */
-describe('3) 같은 카드 빠른 연속 이동 [커밋 11에서 해결 예정]', () => {
+describe('3) 같은 카드 빠른 연속 이동', () => {
   it('최종 상태가 마지막 의도와 일치한다', async () => {
     const { probe, container } = await setup([makeApplicant({ stage: 'screening', version: 1 })])
 
@@ -180,26 +186,90 @@ describe('3) 같은 카드 빠른 연속 이동 [커밋 11에서 해결 예정]'
       probe.moveStage('a1', 'offer')
     })
 
+    // 화면은 마지막 의도를 즉시 보여준다.
+    expect(columnOf(container, '홍길동')).toBe('처우협의 1명')
+    // 서버로는 아직 첫 요청만 나갔다 (직렬화).
+    expect(moveCalls).toHaveLength(1)
+    expect(moveCalls[0]?.input).toMatchObject({ toStage: 'interview', expectedVersion: 1 })
+
     // 첫 요청이 성공한다 (서버 version 2).
     await act(async () => {
       moveCalls[0]?.resolve(makeApplicant({ stage: 'interview', version: 2 }))
     })
 
-    // 두 번째 요청은 낡은 expectedVersion(1)을 들고 갔으므로 서버가 409로 거부한다.
-    if (moveCalls[1] !== undefined) {
-      await act(async () => {
-        moveCalls[1]?.reject(new ConflictError(makeApplicant({ stage: 'interview', version: 2 })))
-      })
-    }
-
-    // 마지막 의도는 '처우협의'였다.
+    // 첫 응답으로 화면을 확정하지 않는다 — 더 새로운 의도가 대기 중이므로.
     expect(probe.state().byId['a1']?.stage).toBe('offer')
+
+    // 두 번째 요청이 **새 version(2)** 으로 나간다.
+    expect(moveCalls).toHaveLength(2)
+    expect(moveCalls[1]?.input).toMatchObject({ toStage: 'offer', expectedVersion: 2 })
+
+    await act(async () => {
+      moveCalls[1]?.resolve(makeApplicant({ stage: 'offer', version: 3 }))
+    })
+
+    expect(probe.state().byId['a1']?.stage).toBe('offer')
+    expect(probe.state().byId['a1']?.version).toBe(3)
     expect(columnOf(container, '홍길동')).toBe('처우협의 1명')
+    expect(probe.state().pendingMoves['a1']).toBeUndefined()
+  })
+
+  it('중간에 실패하면 "큐 시작 시점"으로 롤백한다 (중간 단계가 아니라)', async () => {
+    const { probe, container } = await setup([makeApplicant({ stage: 'screening', version: 1 })])
+
+    act(() => {
+      probe.moveStage('a1', 'interview')
+    })
+    act(() => {
+      probe.moveStage('a1', 'offer')
+    })
+
+    await act(async () => {
+      moveCalls[0]?.reject(new NetworkError())
+    })
+
+    // '면접'(중간 낙관적 상태)이 아니라 '서류검토'(시작 시점)로 돌아가야 한다.
+    expect(probe.state().byId['a1']?.stage).toBe('screening')
+    expect(columnOf(container, '홍길동')).toBe('서류검토 1명')
+  })
+
+  it('서로 다른 카드는 병렬로 나간다 (직렬화를 과하게 걸지 않았다)', async () => {
+    const { probe } = await setup([
+      makeApplicant({ id: 'a1', name: '홍길동' }),
+      makeApplicant({ id: 'a2', name: '김철수' }),
+    ])
+
+    act(() => {
+      probe.moveStage('a1', 'interview')
+    })
+    act(() => {
+      probe.moveStage('a2', 'interview')
+    })
+
+    expect(moveCalls).toHaveLength(2)
+    expect(moveCalls.map((call) => call.input.id)).toEqual(['a1', 'a2'])
   })
 })
 
-describe('4) 늦게 도착한 응답 [커밋 11에서 해결 예정]', () => {
-  it('낡은 응답이 최신 상태를 덮어쓰지 않는다', async () => {
+describe('4) 낡은 응답 차단', () => {
+  it('같은 카드의 요청이 동시에 두 개 떠 있지 않다', async () => {
+    const { probe } = await setup([makeApplicant({ stage: 'screening', version: 1 })])
+
+    act(() => {
+      probe.moveStage('a1', 'interview')
+    })
+    act(() => {
+      probe.moveStage('a1', 'offer')
+    })
+    act(() => {
+      probe.moveStage('a1', 'hired')
+    })
+
+    // 세 번 눌렀지만 서버에는 하나만 나가 있다.
+    expect(moveCalls).toHaveLength(1)
+  })
+
+  it('대기 중 의도가 있으면 먼저 온 응답으로 화면을 확정하지 않는다', async () => {
     const { probe } = await setup([makeApplicant({ stage: 'screening', version: 1 })])
 
     act(() => {
@@ -209,19 +279,13 @@ describe('4) 늦게 도착한 응답 [커밋 11에서 해결 예정]', () => {
       probe.moveStage('a1', 'offer')
     })
 
-    expect(moveCalls).toHaveLength(2)
-
-    // 두 번째(최신) 요청이 먼저 도착한다.
-    await act(async () => {
-      moveCalls[1]?.resolve(makeApplicant({ stage: 'offer', version: 2 }))
-    })
-    expect(probe.state().byId['a1']?.stage).toBe('offer')
-
-    // 첫 번째(낡은) 응답이 뒤늦게 도착한다. 이걸 반영하면 안 된다.
     await act(async () => {
       moveCalls[0]?.resolve(makeApplicant({ stage: 'interview', version: 2 }))
     })
 
+    // 첫 응답(interview)이 최신 낙관적 상태(offer)를 덮어쓰지 않았다.
     expect(probe.state().byId['a1']?.stage).toBe('offer')
+    // 스냅샷도 여전히 시작 시점이다.
+    expect(probe.state().pendingMoves['a1']?.snapshot.stage).toBe('screening')
   })
 })

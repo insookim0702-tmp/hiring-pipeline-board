@@ -44,13 +44,14 @@ export function StageMoveMenu({
   const menuId = useId()
 
   /**
-   * pending 중에는 열지 않는다.
+   * pending 중에도 메뉴를 쓸 수 있다.
    *
-   * 처음에는 `useEffect`로 `isPending`이 되면 `setIsOpen(false)`을 호출했는데
-   * ESLint `react-hooks/set-state-in-effect`가 잡았다. 실제로 불필요한 렌더를
-   * 한 번 더 유발하는 코드였다. 상태를 동기화하는 대신 **파생값으로 계산**한다.
+   * 커밋 5~10에서는 `disabled`로 잠갔다. 연속 클릭이 경쟁 상태를 만들기 때문인데,
+   * 그건 완화책이지 해결이 아니었다. 커밋 11에서 카드별 요청 큐가 들어와
+   * 연속 이동이 안전해졌으므로 잠금을 풀었다 — 잠가둘 이유가 사라진 것이다.
+   * 진행 중임은 버튼 라벨("이동 중…")로만 알린다.
    */
-  const isOpen = isOpenRequested && !isPending
+  const isOpen = isOpenRequested
 
   useImperativeHandle(ref, () => ({
     open: () => {
@@ -113,7 +114,6 @@ export function StageMoveMenu({
       <button
         ref={triggerRef}
         type="button"
-        disabled={isPending}
         tabIndex={tabIndex}
         aria-haspopup="menu"
         aria-expanded={isOpen}
@@ -122,7 +122,7 @@ export function StageMoveMenu({
         onClick={() => {
           setIsOpenRequested((open) => !open)
         }}
-        className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-600 disabled:opacity-50"
+        className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-600"
       >
         {isPending ? '이동 중…' : '이동'}
       </button>
