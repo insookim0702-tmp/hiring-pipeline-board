@@ -1,5 +1,7 @@
 import {
   useCallback,
+  useLayoutEffect,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
@@ -9,9 +11,12 @@ import { STAGE_ORDER } from '../../domain/stages'
 import type { StageGroups } from './selectors'
 
 /** 카드 DOM을 찾는 규약. 카드가 `data-card-id`를 달고 있다는 전제. */
-function focusCard(container: HTMLElement | null, id: string): void {
+/** 렌더되어 있으면 포커스를 주고 true. 가상 스크롤로 화면 밖이면 false. */
+function focusCard(container: HTMLElement | null, id: string): boolean {
   const target = container?.querySelector<HTMLElement>(`[data-card-id="${id}"] [data-card-focus]`)
-  target?.focus()
+  if (target == null) return false
+  target.focus()
+  return true
 }
 
 interface CardLocation {
@@ -58,8 +63,18 @@ export interface BoardKeyboardNav {
 export function useBoardKeyboardNav(
   groups: StageGroups,
   containerRef: RefObject<HTMLDivElement | null>,
+  /**
+   * 대상 카드를 화면 안으로 스크롤한다.
+   *
+   * 가상 스크롤이 들어온 뒤로는 화면 밖 카드가 **DOM에 아예 없다.**
+   * 먼저 스크롤해 렌더시키지 않으면 `focus()`가 아무 일도 하지 않고
+   * 포커스가 `<body>`로 떨어진다.
+   */
+  scrollToCard: (stage: Stage, index: number) => void,
 ): BoardKeyboardNav {
   const [focusedId, setFocusedId] = useState<string | null>(null)
+  /** 아직 렌더되지 않아 포커스를 주지 못한 카드. 렌더되면 layout effect가 처리한다. */
+  const pendingFocusRef = useRef<string | null>(null)
 
   const location = locate(groups, focusedId)
 
@@ -77,11 +92,42 @@ export function useBoardKeyboardNav(
       const clamped = Math.max(0, Math.min(index, column.length - 1))
       const next = column[clamped]
       if (next === undefined) return
+
       setFocusedId(next.id)
-      focusCard(containerRef.current, next.id)
+
+      // 이미 렌더되어 있으면 곧바로 포커스가 간다.
+      if (focusCard(containerRef.current, next.id)) {
+        pendingFocusRef.current = null
+        return
+      }
+
+      /**
+       * 화면 밖 카드는 가상 스크롤 때문에 **DOM에 아예 없다.**
+       * 스크롤을 요청해 두고, 실제로 렌더된 뒤에 포커스한다.
+       *
+       * 처음에는 `requestAnimationFrame`을 한두 번 기다린 뒤 포커스했는데
+       * 그건 "몇 프레임 뒤엔 렌더돼 있겠지"라는 추측이다. 실제로 40장짜리 컬럼에서
+       * End를 눌렀을 때 프레임이 모자라 포커스가 `<body>`로 떨어졌다.
+       * 프레임을 세지 않고 "렌더된 순간"에 반응하도록 바꿨다.
+       */
+      pendingFocusRef.current = next.id
+      scrollToCard(stage, clamped)
     },
-    [containerRef],
+    [containerRef, scrollToCard],
   )
+
+  /**
+   * 대기 중인 포커스 요청을 처리한다.
+   *
+   * 의존성 배열이 없다 = 매 렌더 뒤에 확인한다. 가상 스크롤이 목표 카드를
+   * 그리는 순간(스크롤 이벤트 → 재렌더) 바로 포커스가 간다.
+   * 페인트 전에 끝내야 포커스 링이 한 프레임 튀지 않으므로 layout effect다.
+   */
+  useLayoutEffect(() => {
+    const pending = pendingFocusRef.current
+    if (pending === null) return
+    if (focusCard(containerRef.current, pending)) pendingFocusRef.current = null
+  })
 
   const onKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {

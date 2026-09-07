@@ -37,66 +37,68 @@ function ApplicantCardBase({ applicant, isPending, isTabStop, onFocus }: Applica
   const tabIndex = isTabStop ? 0 : -1
 
   return (
-    <li data-card-id={applicant.id}>
-      <div
-        className={`rounded-md border bg-white transition-colors ${
-          isPending ? 'border-sky-300 bg-sky-50/40' : 'border-slate-200 hover:border-slate-300'
-        }`}
+    /*
+     * 바깥 `li`는 `Column`이 만든다. 가상 스크롤이 각 항목을 절대 위치로 배치하고
+     * 높이를 측정해야 해서, 그 래퍼를 리스트 쪽이 소유하는 게 맞다.
+     */
+    <div
+      className={`rounded-md border bg-white transition-colors ${
+        isPending ? 'border-sky-300 bg-sky-50/40' : 'border-slate-200 hover:border-slate-300'
+      }`}
+    >
+      <button
+        type="button"
+        // 방향키 이동이 이 요소를 찾는다.
+        data-card-focus=""
+        tabIndex={tabIndex}
+        onFocus={() => {
+          onFocus(applicant.id)
+        }}
+        onClick={() => {
+          open(applicant.id)
+        }}
+        onKeyDown={(event) => {
+          // 카드에 포커스가 있는 상태에서 M으로 이동 메뉴를 연다.
+          if (event.key === 'm' || event.key === 'M') {
+            event.preventDefault()
+            menuRef.current?.open()
+          }
+        }}
+        aria-label={`${applicant.name}, ${applicant.position}, ${meta.label}, ${formatAppliedDate(applicant.appliedAt)} 지원. 상세 보기`}
+        className="w-full rounded-t-md px-3 pt-2.5 pb-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
       >
-        <button
-          type="button"
-          // 방향키 이동이 이 요소를 찾는다.
-          data-card-focus=""
-          tabIndex={tabIndex}
-          onFocus={() => {
-            onFocus(applicant.id)
-          }}
-          onClick={() => {
-            open(applicant.id)
-          }}
-          onKeyDown={(event) => {
-            // 카드에 포커스가 있는 상태에서 M으로 이동 메뉴를 연다.
-            if (event.key === 'm' || event.key === 'M') {
-              event.preventDefault()
-              menuRef.current?.open()
-            }
-          }}
-          aria-label={`${applicant.name}, ${applicant.position}, ${meta.label}, ${formatAppliedDate(applicant.appliedAt)} 지원. 상세 보기`}
-          className="w-full rounded-t-md px-3 pt-2.5 pb-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
-        >
-          <span className="flex items-baseline justify-between gap-2">
-            <span className="truncate text-sm font-semibold text-slate-900">{applicant.name}</span>
-            <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
-              {formatAppliedDate(applicant.appliedAt)}
-            </span>
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="truncate text-sm font-semibold text-slate-900">{applicant.name}</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
+            {formatAppliedDate(applicant.appliedAt)}
           </span>
-          <span className="mt-0.5 block truncate text-xs text-slate-600">{applicant.position}</span>
-        </button>
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-slate-600">{applicant.position}</span>
+      </button>
 
-        <div className="flex items-center justify-between gap-2 px-3 pt-1 pb-2">
-          {/*
+      <div className="flex items-center justify-between gap-2 px-3 pt-1 pb-2">
+        {/*
             카드 버튼의 aria-label이 이미 단계를 읽어 주므로 배지는 접근성 트리에서 뺀다.
             안 빼면 스크린리더가 단계를 두 번 읽는다.
           */}
-          <span
-            aria-hidden="true"
-            className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${meta.badgeClass}`}
-          >
-            {meta.label}
-          </span>
-          <StageMoveMenu
-            ref={menuRef}
-            currentStage={applicant.stage}
-            isPending={isPending}
-            applicantName={applicant.name}
-            tabIndex={tabIndex}
-            onSelect={(stage) => {
-              moveStage(applicant.id, stage)
-            }}
-          />
-        </div>
+        <span
+          aria-hidden="true"
+          className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${meta.badgeClass}`}
+        >
+          {meta.label}
+        </span>
+        <StageMoveMenu
+          ref={menuRef}
+          currentStage={applicant.stage}
+          isPending={isPending}
+          applicantName={applicant.name}
+          tabIndex={tabIndex}
+          onSelect={(stage) => {
+            moveStage(applicant.id, stage)
+          }}
+        />
       </div>
-    </li>
+    </div>
   )
 }
 

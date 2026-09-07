@@ -1,5 +1,6 @@
-import { useDeferredValue, useMemo, useRef } from 'react'
+import { useCallback, useDeferredValue, useMemo, useRef } from 'react'
 import { EmptyState } from '../../components/EmptyState'
+import type { Stage } from '../../domain/applicant'
 import { STAGE_ORDER } from '../../domain/stages'
 import { useApplicantsActions, useApplicantsState } from '../applicants/ApplicantsProvider'
 import { isMovePending } from '../applicants/types'
@@ -8,7 +9,7 @@ import { hasActiveFilters, useFilters, useFiltersApi } from '../filters/FiltersP
 import { ApplicantCard } from './ApplicantCard'
 import { BoardError, ReloadErrorBanner } from './BoardError'
 import { BoardSkeleton } from './BoardSkeleton'
-import { Column } from './Column'
+import { Column, type ColumnScroller } from './Column'
 import { selectBoardView, selectPositions } from './selectors'
 import { useBoardKeyboardNav } from './useBoardKeyboardNav'
 
@@ -46,7 +47,25 @@ export function Board() {
   const positions = useMemo(() => selectPositions(state), [state])
 
   const boardRef = useRef<HTMLDivElement>(null)
-  const { tabStopByStage, onKeyDown, onCardFocus } = useBoardKeyboardNav(groups, boardRef)
+
+  /**
+   * 컬럼별 스크롤 제어. 각 `Column`이 마운트 시 자기 스크롤러를 등록한다.
+   * 방향키가 화면 밖 카드로 이동할 때 이걸 통해 먼저 스크롤한다.
+   */
+  const scrollersRef = useRef<Partial<Record<Stage, ColumnScroller>>>({})
+  const registerScroller = useCallback((stage: Stage, scroller: ColumnScroller | null) => {
+    if (scroller === null) delete scrollersRef.current[stage]
+    else scrollersRef.current[stage] = scroller
+  }, [])
+  const scrollToCard = useCallback((stage: Stage, index: number) => {
+    scrollersRef.current[stage]?.scrollToIndex(index)
+  }, [])
+
+  const { tabStopByStage, onKeyDown, onCardFocus } = useBoardKeyboardNav(
+    groups,
+    boardRef,
+    scrollToCard,
+  )
 
   const hasData = state.allIds.length > 0
 
@@ -102,10 +121,13 @@ export function Board() {
           {STAGE_ORDER.map((stage) => {
             const applicants = groups[stage]
             return (
-              <Column key={stage} stage={stage} count={applicants.length}>
-                {applicants.map((applicant) => (
+              <Column
+                key={stage}
+                stage={stage}
+                applicants={applicants}
+                registerScroller={registerScroller}
+                renderCard={(applicant) => (
                   <ApplicantCard
-                    key={applicant.id}
                     applicant={applicant}
                     // 불리언으로 좁혀서 넘긴다. pendingMoves 객체를 그대로 넘기면
                     // 다른 카드가 이동할 때마다 모든 카드의 prop이 바뀌어 memo가 깨진다.
@@ -113,8 +135,8 @@ export function Board() {
                     isTabStop={tabStopByStage[stage] === applicant.id}
                     onFocus={onCardFocus}
                   />
-                ))}
-              </Column>
+                )}
+              />
             )
           })}
         </div>
