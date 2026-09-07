@@ -51,6 +51,8 @@ export function applicantsReducer(
         ...state,
         status: 'ready',
         error: null,
+        // 목록을 새로 받았으면 이전 되돌리기 대상은 신뢰할 수 없다.
+        lastMove: null,
         ...normalize(action.applicants),
       }
 
@@ -81,13 +83,32 @@ export function applicantsReducer(
             // 반영 *전* 상태에서 캡처한다. 이 순서가 롤백의 정확성을 결정한다.
             snapshot: existing?.snapshot ?? current,
             toStage: action.toStage,
+            isUndo: existing?.isUndo ?? action.isUndo === true,
           },
         },
       }
     }
 
-    case 'MOVE_CONFIRMED':
-      return replaceApplicant(state, action.applicant)
+    case 'MOVE_CONFIRMED': {
+      const { applicant } = action
+      const pending = state.pendingMoves[applicant.id]
+      const next = replaceApplicant(state, applicant)
+
+      // 되돌리기 대상 갱신. `from`은 스냅샷(= 이동이 시작된 시점)에서 가져오므로
+      // 연속 이동이 병합됐어도 처음 단계로 되돌아간다.
+      if (pending === undefined) return next
+      if (pending.isUndo) return { ...next, lastMove: null }
+
+      return {
+        ...next,
+        lastMove: {
+          id: applicant.id,
+          name: applicant.name,
+          from: pending.snapshot.stage,
+          to: applicant.stage,
+        },
+      }
+    }
 
     case 'MOVE_ROLLBACK': {
       const pending = state.pendingMoves[action.id]

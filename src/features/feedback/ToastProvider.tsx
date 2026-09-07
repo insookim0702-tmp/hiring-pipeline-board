@@ -11,17 +11,24 @@ import {
 
 export type ToastTone = 'error' | 'warning' | 'success'
 
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 export interface Toast {
   id: number
   tone: ToastTone
   title: string
   description?: string
+  action?: ToastAction
 }
 
 export interface ToastInput {
   tone: ToastTone
   title: string
   description?: string
+  action?: ToastAction
   /** 자동 소멸 시간(ms). 0이면 자동으로 사라지지 않는다. */
   durationMs?: number
 }
@@ -60,11 +67,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const push = useCallback(
-    ({ tone, title, description, durationMs = DEFAULT_DURATION_MS }: ToastInput) => {
+    ({ tone, title, description, action, durationMs = DEFAULT_DURATION_MS }: ToastInput) => {
       const id = nextId.current
       nextId.current += 1
 
-      setToasts((current) => [...current, { id, tone, title, description }])
+      setToasts((current) => [...current, { id, tone, title, description, action }])
 
       if (durationMs > 0) {
         timers.current.set(

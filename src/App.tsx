@@ -1,5 +1,6 @@
 import { KeyboardHelp } from './components/KeyboardHelp'
 import { Board } from './features/board/Board'
+import { UndoHotkey } from './features/applicants/UndoHotkey'
 import {
   ApplicantsProvider,
   useApplicantsActions,
@@ -82,6 +83,7 @@ export function App() {
               <AppShell />
             </SelectionProvider>
           </FiltersProvider>
+          <UndoHotkey />
           <ToastViewport />
         </ApplicantsProvider>
       </ToastProvider>

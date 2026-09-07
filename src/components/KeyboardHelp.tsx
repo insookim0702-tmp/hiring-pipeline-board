@@ -9,6 +9,7 @@ const SHORTCUTS: ReadonlyArray<{ keys: string; description: string }> = [
   { keys: 'M', description: '단계 이동 메뉴 열기' },
   { keys: '↑ ↓, Enter', description: '(메뉴에서) 단계 선택' },
   { keys: 'Esc', description: '메뉴 / 상세 패널 닫기' },
+  { keys: 'Ctrl / Cmd + Z', description: '마지막 단계 이동 되돌리기' },
   { keys: '?', description: '이 도움말 열기 / 닫기' },
 ]
 

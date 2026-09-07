@@ -37,6 +37,20 @@ export function ToastViewport() {
             )}
           </div>
 
+          {toast.action !== undefined && (
+            <button
+              type="button"
+              onClick={() => {
+                const run = toast.action?.onClick
+                dismiss(toast.id)
+                run?.()
+              }}
+              className="shrink-0 rounded border border-current/30 bg-white/70 px-2 py-1 text-xs font-medium transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-current"
+            >
+              {toast.action.label}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {

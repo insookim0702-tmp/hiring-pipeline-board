@@ -10,6 +10,7 @@ import {
 import type { ApplicantsState } from '../features/applicants/types'
 import { FiltersProvider } from '../features/filters/FiltersProvider'
 import { ApplicantDetailPanel } from '../features/detail/ApplicantDetailPanel'
+import { UndoHotkey } from '../features/applicants/UndoHotkey'
 import { SelectionProvider, useSelectedId } from '../features/selection/SelectionProvider'
 import { AnnouncerProvider } from '../features/feedback/AnnouncerProvider'
 import { ToastProvider } from '../features/feedback/ToastProvider'
@@ -39,6 +40,7 @@ export interface Probe {
   state: () => ApplicantsState
   moveStage: (id: string, toStage: Stage) => void
   reload: () => void
+  undo: () => void
 }
 
 export interface Harness extends RenderResult {
@@ -102,6 +104,7 @@ export function renderBoard(): Harness {
             <SelectionProvider>
               <Capture onSnapshot={publish} />
               <BoardWithPanel />
+              <UndoHotkey />
             </SelectionProvider>
           </FiltersProvider>
           <ToastViewport />
@@ -117,6 +120,9 @@ export function renderBoard(): Harness {
     },
     moveStage: (id, toStage) => {
       sink.actions?.moveStage(id, toStage)
+    },
+    undo: () => {
+      sink.actions?.undoLastMove()
     },
     reload: () => {
       sink.actions?.reload()

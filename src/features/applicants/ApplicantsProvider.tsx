@@ -32,6 +32,8 @@ interface ApplicantsActions {
   moveStage: (id: string, toStage: Stage) => void
   /** 상세 조회 결과를 스토어에 반영한다. 패널이 자기 사본을 들지 않게 하려는 것. */
   dispatchFetched: (applicant: Applicant) => void
+  /** 마지막으로 확정된 이동을 되돌린다. 되돌릴 게 없으면 아무 일도 하지 않는다. */
+  undoLastMove: () => void
 }
 
 const ActionsContext = createContext<ApplicantsActions | null>(null)
@@ -109,9 +111,31 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
       readVersion: (id) => stateRef.current.byId[id]?.version,
       send: (id, toStage, expectedVersion) => moveApplicantStage({ id, toStage, expectedVersion }),
 
-      onConfirmed: (_id, applicant) => {
+      onConfirmed: (id, applicant) => {
+        // 확정 전에 읽어야 한다 — dispatch 후에는 pendingMoves가 비워진다.
+        const pending = stateRef.current.pendingMoves[id]
         dispatch({ type: 'MOVE_CONFIRMED', applicant })
-        announce(`${applicant.name} 님을 ${stageLabel(applicant.stage)} 단계로 이동했습니다.`)
+
+        const toLabel = stageLabel(applicant.stage)
+        announce(
+          pending?.isUndo === true
+            ? `${applicant.name} 님의 이동을 되돌려 ${toLabel} 단계로 돌아갔습니다.`
+            : `${applicant.name} 님을 ${toLabel} 단계로 이동했습니다.`,
+        )
+
+        // 되돌리기로 생긴 이동에는 되돌리기를 다시 붙이지 않는다(핑퐁 방지).
+        if (pending === undefined || pending.isUndo) return
+
+        toast.push({
+          tone: 'success',
+          title: `${applicant.name} 님을 ${toLabel}(으)로 이동했습니다`,
+          action: {
+            label: '되돌리기',
+            onClick: () => {
+              undoRef.current?.()
+            },
+          },
+        })
       },
 
       onConflict: (_id, serverCurrent) => {
@@ -177,6 +201,42 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
     queueRef.current?.enqueue(id, toStage)
   }, [])
 
+  /**
+   * 되돌리기.
+   *
+   * **로컬 상태만 되돌리면 안 된다.** 새로고침하면 서버 값이 되살아난다.
+   * 그래서 되돌리기도 같은 큐를 타는 진짜 이동이고, 15% 확률로 실패한다.
+   */
+  const undoLastMove = useCallback(() => {
+    const last = stateRef.current.lastMove
+    if (last === null) return
+
+    const applicant = stateRef.current.byId[last.id]
+    if (applicant === undefined) return
+
+    // 그 카드에 이동이 진행 중이면 되돌리기를 받지 않는다.
+    // 진행 중인 의도를 되돌리기가 가로채면 사용자가 방금 누른 이동이 조용히 사라진다.
+    if (stateRef.current.pendingMoves[last.id] !== undefined) {
+      toast.push({
+        tone: 'warning',
+        title: '이동이 진행 중입니다',
+        description: `${last.name} 님의 이동이 끝난 뒤에 되돌릴 수 있습니다.`,
+      })
+      return
+    }
+
+    if (applicant.stage === last.from) return
+
+    dispatch({ type: 'MOVE_OPTIMISTIC', id: last.id, toStage: last.from, isUndo: true })
+    queueRef.current?.enqueue(last.id, last.from)
+  }, [toast])
+
+  // 성공 토스트의 "되돌리기" 버튼이 참조한다. 큐 생성 effect보다 나중에 정의되므로 ref로 잇는다.
+  const undoRef = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    undoRef.current = undoLastMove
+  }, [undoLastMove])
+
   const dispatchFetched = useCallback((applicant: Applicant) => {
     dispatch({ type: 'APPLICANT_FETCHED', applicant })
   }, [])
@@ -186,8 +246,8 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
   }, [load])
 
   const actions = useMemo<ApplicantsActions>(
-    () => ({ reload: load, moveStage, dispatchFetched }),
-    [load, moveStage, dispatchFetched],
+    () => ({ reload: load, moveStage, dispatchFetched, undoLastMove }),
+    [load, moveStage, dispatchFetched, undoLastMove],
   )
 
   return (

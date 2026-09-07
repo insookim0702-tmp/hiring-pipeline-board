@@ -13,6 +13,22 @@ export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 export interface PendingMove {
   snapshot: Applicant
   toStage: Stage
+  /** 되돌리기로 발생한 이동인지. 확정되면 되돌리기 대상을 비운다(되돌리기의 되돌리기 방지). */
+  isUndo: boolean
+}
+
+/**
+ * 마지막으로 **서버가 확정한** 이동. 되돌리기 대상이다.
+ *
+ * 스택이 아니라 한 건만 둔다 — 이유는 DECISIONS.md.
+ * `from`은 `PendingMove.snapshot`에서 온다. 즉 연속 이동이 병합됐다면
+ * 중간 단계가 아니라 **처음 시작한 단계**로 되돌아간다.
+ */
+export interface LastMove {
+  id: string
+  name: string
+  from: Stage
+  to: Stage
 }
 
 /**
@@ -34,6 +50,8 @@ export interface ApplicantsState {
    * 로드 시점에 한 번 만들어 두고 검색에서 재사용한다.
    */
   searchIndex: Record<string, string>
+  /** 되돌릴 수 있는 마지막 이동. 없으면 null. */
+  lastMove: LastMove | null
 }
 
 export type ApplicantsAction =
@@ -41,7 +59,7 @@ export type ApplicantsAction =
   | { type: 'LOAD_SUCCESS'; applicants: Applicant[] }
   | { type: 'LOAD_ERROR'; message: string }
   /** UI를 먼저 바꾸고 스냅샷을 남긴다. */
-  | { type: 'MOVE_OPTIMISTIC'; id: string; toStage: Stage }
+  | { type: 'MOVE_OPTIMISTIC'; id: string; toStage: Stage; isUndo?: boolean }
   /** 서버가 확정했다. 서버가 준 객체(version 포함)로 교체한다. */
   | { type: 'MOVE_CONFIRMED'; applicant: Applicant }
   /** 요청이 서버에 닿지 못했다. 스냅샷으로 되돌린다. */
@@ -64,6 +82,7 @@ export const initialApplicantsState: ApplicantsState = {
   error: null,
   pendingMoves: {},
   searchIndex: {},
+  lastMove: null,
 }
 
 export function isMovePending(state: ApplicantsState, id: string): boolean {
