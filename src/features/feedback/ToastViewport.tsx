@@ -18,15 +18,16 @@ export function ToastViewport() {
 
   return (
     <div
-      aria-live="polite"
-      aria-atomic="false"
+      /*
+       * 여기에는 aria-live를 두지 않는다.
+       * 안내는 AnnouncerProvider가 단독으로 담당한다 — 토스트와 live region이
+       * 각각 알리면 같은 사건이 두 번 낭독된다. 이 컴포넌트는 시각 표현만 맡는다.
+       */
       className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-2 p-4"
     >
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          // 실패는 즉시 알려야 한다. 성공은 흐름을 끊지 않게 polite로 둔다.
-          role={toast.tone === 'success' ? 'status' : 'alert'}
           className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-lg border px-3.5 py-2.5 shadow-lg ${TONE_CLASS[toast.tone]}`}
         >
           <div className="min-w-0 flex-1">

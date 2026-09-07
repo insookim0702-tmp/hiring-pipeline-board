@@ -136,6 +136,8 @@ export function ApplicantDetailPanel({ applicantId }: ApplicantDetailPanelProps)
                 currentStage={applicant.stage}
                 isPending={pending}
                 applicantName={applicant.name}
+                // 패널 안에서는 포커스 트랩이 순서를 관리하므로 항상 Tab 대상이다.
+                tabIndex={0}
                 onSelect={(stage) => {
                   moveStage(applicant.id, stage)
                 }}

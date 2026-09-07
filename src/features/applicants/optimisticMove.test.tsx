@@ -103,9 +103,14 @@ describe('2) 실패 시 롤백 + 피드백', () => {
     expect(probe.state().byId['a1']?.stage).toBe('screening')
     expect(probe.state().pendingMoves['a1']).toBeUndefined()
 
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('옮기지 못했습니다')
-    expect(alert).toHaveTextContent('서류검토')
+    // 스크린리더 안내는 Announcer가 단독으로 담당한다(토스트에는 live role이 없다).
+    const liveRegion = await screen.findByText(/옮기지 못했습니다/, {
+      selector: '[aria-live="assertive"]',
+    })
+    expect(liveRegion).toHaveTextContent('서류검토 단계로 되돌렸습니다')
+
+    // 시각 표현(토스트)도 함께 떠야 한다.
+    expect(screen.getByText(/님을 불합격\(으\)로 옮기지 못했습니다/)).toBeInTheDocument()
   })
 })
 

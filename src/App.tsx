@@ -1,3 +1,4 @@
+import { KeyboardHelp } from './components/KeyboardHelp'
 import { Board } from './features/board/Board'
 import {
   ApplicantsProvider,
@@ -5,6 +6,7 @@ import {
   useApplicantsState,
 } from './features/applicants/ApplicantsProvider'
 import { ApplicantDetailPanel } from './features/detail/ApplicantDetailPanel'
+import { AnnouncerProvider } from './features/feedback/AnnouncerProvider'
 import { ToastProvider } from './features/feedback/ToastProvider'
 import { ToastViewport } from './features/feedback/ToastViewport'
 import { FiltersProvider } from './features/filters/FiltersProvider'
@@ -24,6 +26,7 @@ function AppHeader() {
       </p>
 
       <div className="ml-auto flex items-center gap-2">
+        <KeyboardHelp />
         {/*
           진행 표시를 헤더가 담당한다. 에러 패널 안에 두면, 재시도를 눌러 status가
           loading으로 바뀌는 순간 그 패널 자체가 언마운트되어 표시될 기회가 없다.
@@ -71,15 +74,17 @@ export function App() {
   return (
     // ToastProvider가 바깥이다. ApplicantsProvider가 실패 피드백을 띄우려면
     // useToastApi()를 쓸 수 있어야 한다.
-    <ToastProvider>
-      <ApplicantsProvider>
-        <FiltersProvider>
-          <SelectionProvider>
-            <AppShell />
-          </SelectionProvider>
-        </FiltersProvider>
-        <ToastViewport />
-      </ApplicantsProvider>
-    </ToastProvider>
+    <AnnouncerProvider>
+      <ToastProvider>
+        <ApplicantsProvider>
+          <FiltersProvider>
+            <SelectionProvider>
+              <AppShell />
+            </SelectionProvider>
+          </FiltersProvider>
+          <ToastViewport />
+        </ApplicantsProvider>
+      </ToastProvider>
+    </AnnouncerProvider>
   )
 }

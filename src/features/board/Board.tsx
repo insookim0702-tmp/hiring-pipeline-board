@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo } from 'react'
+import { useDeferredValue, useMemo, useRef } from 'react'
 import { EmptyState } from '../../components/EmptyState'
 import { STAGE_ORDER } from '../../domain/stages'
 import { useApplicantsActions, useApplicantsState } from '../applicants/ApplicantsProvider'
@@ -10,6 +10,7 @@ import { BoardError, ReloadErrorBanner } from './BoardError'
 import { BoardSkeleton } from './BoardSkeleton'
 import { Column } from './Column'
 import { selectBoardView, selectPositions } from './selectors'
+import { useBoardKeyboardNav } from './useBoardKeyboardNav'
 
 /**
  * 파이프라인 보드.
@@ -43,6 +44,9 @@ export function Board() {
     [state, deferredFilters],
   )
   const positions = useMemo(() => selectPositions(state), [state])
+
+  const boardRef = useRef<HTMLDivElement>(null)
+  const { tabStopByStage, onKeyDown, onCardFocus } = useBoardKeyboardNav(groups, boardRef)
 
   const hasData = state.allIds.length > 0
 
@@ -88,6 +92,8 @@ export function Board() {
         />
       ) : (
         <div
+          ref={boardRef}
+          onKeyDown={onKeyDown}
           // 목록이 아직 따라잡지 못한 동안 살짝 흐리게 해서 계산 중임을 알린다.
           className={`flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 transition-opacity ${
             isFiltering ? 'opacity-60' : ''
@@ -104,6 +110,8 @@ export function Board() {
                     // 불리언으로 좁혀서 넘긴다. pendingMoves 객체를 그대로 넘기면
                     // 다른 카드가 이동할 때마다 모든 카드의 prop이 바뀌어 memo가 깨진다.
                     isPending={isMovePending(state, applicant.id)}
+                    isTabStop={tabStopByStage[stage] === applicant.id}
+                    onFocus={onCardFocus}
                   />
                 ))}
               </Column>

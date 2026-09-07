@@ -11,6 +11,7 @@ import {
 import type { Applicant, Stage } from '../../domain/applicant'
 import { stageLabel } from '../../domain/stages'
 import { ConflictError, listApplicants, moveApplicantStage } from '../../mocks'
+import { useAnnouncer } from '../feedback/AnnouncerProvider'
 import { useToastApi } from '../feedback/ToastProvider'
 import { applicantsReducer } from './reducer'
 import { initialApplicantsState, type ApplicantsState } from './types'
@@ -37,6 +38,7 @@ const ActionsContext = createContext<ApplicantsActions | null>(null)
 export function ApplicantsProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(applicantsReducer, initialApplicantsState)
   const toast = useToastApi()
+  const { announce } = useAnnouncer()
 
   /**
    * 진행 중인 로드의 순번. 응답이 도착했을 때 이 값과 다르면 낡은 응답이므로 버린다.
@@ -99,21 +101,31 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
       moveApplicantStage({ id, toStage, expectedVersion: applicant.version }).then(
         (updated) => {
           dispatch({ type: 'MOVE_CONFIRMED', applicant: updated })
+          announce(`${name} 님을 ${toLabel} 단계로 이동했습니다.`)
         },
         (error: unknown) => {
           if (error instanceof ConflictError) {
             // 버전 충돌: 롤백이 아니라 서버 상태로 재동기화한다.
             // 내가 들고 있던 스냅샷도 이미 낡았기 때문이다.
             dispatch({ type: 'MOVE_RESYNC', applicant: error.current })
+            const serverLabel = stageLabel(error.current.stage)
             toast.push({
               tone: 'warning',
               title: `${name} 님의 단계가 이미 변경되었습니다`,
-              description: `다른 변경이 먼저 반영되어 ${stageLabel(error.current.stage)}(으)로 맞췄습니다.`,
+              description: `다른 변경이 먼저 반영되어 ${serverLabel}(으)로 맞췄습니다.`,
             })
+            announce(
+              `${name} 님 이동 실패. 다른 변경이 먼저 반영되어 ${serverLabel} 단계로 맞췄습니다.`,
+              'assertive',
+            )
             return
           }
 
           dispatch({ type: 'MOVE_ROLLBACK', id })
+          announce(
+            `${name} 님을 ${toLabel} 단계로 옮기지 못했습니다. ${fromLabel} 단계로 되돌렸습니다.`,
+            'assertive',
+          )
           toast.push({
             tone: 'error',
             title: `${name} 님을 ${toLabel}(으)로 옮기지 못했습니다`,
@@ -124,7 +136,7 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
         },
       )
     },
-    [toast],
+    [toast, announce],
   )
 
   const dispatchFetched = useCallback((applicant: Applicant) => {
