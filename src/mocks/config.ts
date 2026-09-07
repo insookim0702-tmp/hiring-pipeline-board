@@ -18,25 +18,49 @@ export interface MockConfig {
 }
 
 const DEFAULT_COUNT = 200
+const DEFAULT_FAILURE_RATE = 0.15
+
+function searchParams(): URLSearchParams | null {
+  if (typeof window === 'undefined') return null
+  return new URLSearchParams(window.location.search)
+}
 
 /**
  * 건수는 `?count=1000` 쿼리스트링으로 전환한다.
  * 성능 비교(200건 / 1000건)를 URL만 바꿔서 재현할 수 있게 하려는 것이다.
+ * `?count=0`은 "지원자 0건" 빈 상태를 재현하는 데 쓴다.
  */
 function countFromLocation(): number {
-  if (typeof window === 'undefined') return DEFAULT_COUNT
-  const raw = new URLSearchParams(window.location.search).get('count')
+  const params = searchParams()
+  if (params === null) return DEFAULT_COUNT
+  const raw = params.get('count')
   if (raw === null) return DEFAULT_COUNT
   const parsed = Number.parseInt(raw, 10)
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_COUNT
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_COUNT
   return Math.min(parsed, 5000)
+}
+
+/**
+ * 실패율을 `?fail=1` (항상 실패) / `?fail=0` (절대 실패 안 함)으로 덮어쓴다.
+ *
+ * 15%는 "때로 실패"라서 에러 UI와 롤백을 눈으로 확인하기 어렵다.
+ * 평가자도 같은 방법으로 재현할 수 있어야 하므로 URL로 열어 두었다.
+ */
+function failureRateFromLocation(): number {
+  const params = searchParams()
+  if (params === null) return DEFAULT_FAILURE_RATE
+  const raw = params.get('fail')
+  if (raw === null) return DEFAULT_FAILURE_RATE
+  const parsed = Number.parseFloat(raw)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) return DEFAULT_FAILURE_RATE
+  return parsed
 }
 
 function createDefaults(): MockConfig {
   return {
     minLatencyMs: 200,
     maxLatencyMs: 800,
-    failureRate: 0.15,
+    failureRate: failureRateFromLocation(),
     seed: 20260907,
     count: countFromLocation(),
     random: Math.random,

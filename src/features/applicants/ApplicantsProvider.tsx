@@ -74,7 +74,8 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
 
 export function useApplicantsState(): ApplicantsState {
   const state = useContext(StateContext)
-  if (state === null) throw new Error('useApplicantsState는 ApplicantsProvider 안에서만 쓸 수 있다.')
+  if (state === null)
+    throw new Error('useApplicantsState는 ApplicantsProvider 안에서만 쓸 수 있다.')
   return state
 }
 

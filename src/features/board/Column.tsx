@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { Stage } from '../../domain/applicant'
 import { STAGE_META } from '../../domain/stages'
+import { EmptyState } from '../../components/EmptyState'
 
 interface ColumnProps {
   stage: Stage
@@ -31,7 +32,14 @@ export function Column({ stage, count, children }: ColumnProps) {
         </span>
       </header>
 
-      <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">{children}</ul>
+      {count === 0 ? (
+        // 빈 상태 ②: 데이터는 있지만 이 단계에 아무도 없다.
+        <div className="min-h-0 flex-1">
+          <EmptyState title="해당 단계 지원자 없음" size="sm" />
+        </div>
+      ) : (
+        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">{children}</ul>
+      )}
     </section>
   )
 }
