@@ -3,6 +3,7 @@ import type { Applicant } from '../../domain/applicant'
 import { STAGE_META } from '../../domain/stages'
 import { formatAppliedDate } from '../../lib/format'
 import { useApplicantsActions } from '../applicants/ApplicantsProvider'
+import { useSelectionApi } from '../selection/SelectionProvider'
 import { StageMoveMenu } from './StageMoveMenu'
 
 interface ApplicantCardProps {
@@ -23,6 +24,7 @@ interface ApplicantCardProps {
 function ApplicantCardBase({ applicant, isPending }: ApplicantCardProps) {
   const meta = STAGE_META[applicant.stage]
   const { moveStage } = useApplicantsActions()
+  const { open } = useSelectionApi()
 
   return (
     <li>
@@ -33,6 +35,10 @@ function ApplicantCardBase({ applicant, isPending }: ApplicantCardProps) {
       >
         <button
           type="button"
+          onClick={() => {
+            open(applicant.id)
+          }}
+          aria-label={`${applicant.name} 상세 보기`}
           className="w-full rounded-t-md px-3 pt-2.5 pb-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
         >
           <span className="flex items-baseline justify-between gap-2">

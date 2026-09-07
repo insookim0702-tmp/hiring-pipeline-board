@@ -4,9 +4,11 @@ import {
   useApplicantsActions,
   useApplicantsState,
 } from './features/applicants/ApplicantsProvider'
-import { FiltersProvider } from './features/filters/FiltersProvider'
+import { ApplicantDetailPanel } from './features/detail/ApplicantDetailPanel'
 import { ToastProvider } from './features/feedback/ToastProvider'
 import { ToastViewport } from './features/feedback/ToastViewport'
+import { FiltersProvider } from './features/filters/FiltersProvider'
+import { SelectionProvider, useSelectedId } from './features/selection/SelectionProvider'
 
 function AppHeader() {
   const { allIds, status } = useApplicantsState()
@@ -41,15 +43,26 @@ function AppHeader() {
 
 function AppShell() {
   const { status } = useApplicantsState()
+  const selectedId = useSelectedId()
+  const isPanelOpen = selectedId !== null
 
   return (
     <div
       // 로드 상태를 DOM에 노출해 둔다. 브라우저에서 상태 전이를 직접 확인할 때 쓴다.
       data-load-status={status}
-      className="flex h-dvh flex-col bg-white text-slate-900"
+      className="flex h-dvh bg-white text-slate-900"
     >
-      <AppHeader />
-      <Board />
+      {/*
+        패널이 aria-modal을 선언하는 동안 배경은 상호작용에서 제외한다.
+        `inert`는 시각적으로는 그대로 두면서 포커스·클릭·접근성 트리에서만 빼주므로,
+        "보드 문맥을 유지한다"는 패널 선택 이유를 깨지 않는다.
+      */}
+      <div inert={isPanelOpen} className="flex min-w-0 flex-1 flex-col">
+        <AppHeader />
+        <Board />
+      </div>
+
+      {selectedId !== null && <ApplicantDetailPanel key={selectedId} applicantId={selectedId} />}
     </div>
   )
 }
@@ -61,7 +74,9 @@ export function App() {
     <ToastProvider>
       <ApplicantsProvider>
         <FiltersProvider>
-          <AppShell />
+          <SelectionProvider>
+            <AppShell />
+          </SelectionProvider>
         </FiltersProvider>
         <ToastViewport />
       </ApplicantsProvider>

@@ -8,6 +8,7 @@ import {
 } from '../features/applicants/ApplicantsProvider'
 import type { ApplicantsState } from '../features/applicants/types'
 import { FiltersProvider } from '../features/filters/FiltersProvider'
+import { SelectionProvider } from '../features/selection/SelectionProvider'
 import { ToastProvider } from '../features/feedback/ToastProvider'
 import { ToastViewport } from '../features/feedback/ToastViewport'
 
@@ -63,8 +64,10 @@ export function renderBoard(): Harness {
     <ToastProvider>
       <ApplicantsProvider>
         <FiltersProvider>
-          <Capture />
-          <Board />
+          <SelectionProvider>
+            <Capture />
+            <Board />
+          </SelectionProvider>
         </FiltersProvider>
         <ToastViewport />
       </ApplicantsProvider>

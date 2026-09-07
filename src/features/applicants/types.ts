@@ -51,6 +51,11 @@ export type ApplicantsAction =
    * 내 스냅샷도 이미 낡았으므로 서버가 알려준 현재 상태로 맞춘다.
    */
   | { type: 'MOVE_RESYNC'; applicant: Applicant }
+  /**
+   * 상세 조회 결과. 스토어를 단일 진실 공급원으로 유지하기 위해
+   * 패널이 자기 사본을 들고 있지 않고 여기로 흘려보낸다.
+   */
+  | { type: 'APPLICANT_FETCHED'; applicant: Applicant }
 
 export const initialApplicantsState: ApplicantsState = {
   status: 'idle',

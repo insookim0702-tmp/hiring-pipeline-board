@@ -87,6 +87,21 @@ export function applicantsReducer(
       return replaceApplicant(state, pending.snapshot)
     }
 
+    case 'APPLICANT_FETCHED': {
+      const { applicant } = action
+      if (state.byId[applicant.id] === undefined) return state
+      /**
+       * 낙관적 이동이 진행 중이면 조회 결과를 버린다.
+       *
+       * 상세 조회는 이동 요청과 무관하게 날아가므로, 서버가 아직 이동을 반영하지
+       * 않은 응답이 늦게 도착해 화면의 낙관적 상태를 되돌려 버릴 수 있다.
+       * 이동이 확정되면 `MOVE_CONFIRMED`가 서버 객체 전체(stageHistory 포함)로
+       * 교체하므로 여기서 굳이 병합하지 않아도 데이터가 최신이 된다.
+       */
+      if (state.pendingMoves[applicant.id] !== undefined) return state
+      return { ...state, byId: { ...state.byId, [applicant.id]: applicant } }
+    }
+
     case 'MOVE_RESYNC':
       // 롤백과 코드가 같아 보이지만 의미가 다르다. 되돌리는 게 아니라
       // 서버가 알려준 현재 상태로 맞추는 것이다.

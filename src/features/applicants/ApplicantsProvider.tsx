@@ -8,7 +8,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react'
-import type { Stage } from '../../domain/applicant'
+import type { Applicant, Stage } from '../../domain/applicant'
 import { stageLabel } from '../../domain/stages'
 import { ConflictError, listApplicants, moveApplicantStage } from '../../mocks'
 import { useToastApi } from '../feedback/ToastProvider'
@@ -28,6 +28,8 @@ interface ApplicantsActions {
   reload: () => void
   /** 카드를 다른 단계로 옮긴다. */
   moveStage: (id: string, toStage: Stage) => void
+  /** 상세 조회 결과를 스토어에 반영한다. 패널이 자기 사본을 들지 않게 하려는 것. */
+  dispatchFetched: (applicant: Applicant) => void
 }
 
 const ActionsContext = createContext<ApplicantsActions | null>(null)
@@ -125,11 +127,18 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
     [toast],
   )
 
+  const dispatchFetched = useCallback((applicant: Applicant) => {
+    dispatch({ type: 'APPLICANT_FETCHED', applicant })
+  }, [])
+
   useEffect(() => {
     load()
   }, [load])
 
-  const actions = useMemo<ApplicantsActions>(() => ({ reload: load, moveStage }), [load, moveStage])
+  const actions = useMemo<ApplicantsActions>(
+    () => ({ reload: load, moveStage, dispatchFetched }),
+    [load, moveStage, dispatchFetched],
+  )
 
   return (
     <StateContext.Provider value={state}>
