@@ -96,6 +96,65 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
    * 큐는 응답 직후 곧바로 다음 요청을 보내는데, 그 시점에는 React가 아직
    * 커밋하지 않아 스토어를 읽으면 낡은 version이 나온다.
    */
+  const queueRef = useRef<MoveQueue | null>(null)
+
+  /**
+   * 이동 시작. 큐에 닿는 **유일한 지점**이다.
+   *
+   * 처음에는 `undoLastMove`가 직접 `queueRef`를 만졌는데, React Compiler 린트가
+   * "effect 의존성으로 쓰인 값을 effect 안에서 수정할 수 없다"고 막았다
+   * (`undoLastMove`가 큐 생성 effect의 의존성이면서 그 안에서 `queueRef`를 대입하므로).
+   * 큐 접근 지점을 여기 하나로 모으니 그 순환이 사라졌고, 코드도 단순해졌다.
+   */
+  const startMove = useCallback((id: string, toStage: Stage, options?: { isUndo?: boolean }) => {
+    const applicant = stateRef.current.byId[id]
+    if (applicant === undefined) return
+    // 같은 단계로의 이동은 서버에 보낼 필요가 없다.
+    if (applicant.stage === toStage) return
+
+    // 1) UI를 먼저 바꾼다. 스냅샷 캡처는 리듀서가 반영 전 상태에서 수행하고,
+    //    이미 진행 중인 이동이 있으면 기존 스냅샷을 유지한다.
+    dispatch({ type: 'MOVE_OPTIMISTIC', id, toStage, isUndo: options?.isUndo === true })
+    // 2) 큐에 넣는다. 같은 카드는 순차 실행, 다른 카드는 병렬.
+    queueRef.current?.enqueue(id, toStage)
+  }, [])
+
+  const moveStage = useCallback(
+    (id: string, toStage: Stage) => {
+      startMove(id, toStage)
+    },
+    [startMove],
+  )
+
+  /**
+   * 되돌리기.
+   *
+   * **로컬 상태만 되돌리면 안 된다.** 새로고침하면 서버 값이 되살아난다.
+   * 그래서 되돌리기도 같은 큐를 타는 진짜 이동이고, 15% 확률로 실패한다.
+   */
+  const undoLastMove = useCallback(() => {
+    const last = stateRef.current.lastMove
+    if (last === null) return
+
+    const applicant = stateRef.current.byId[last.id]
+    if (applicant === undefined) return
+
+    // 그 카드에 이동이 진행 중이면 되돌리기를 받지 않는다.
+    // 진행 중인 의도를 되돌리기가 가로채면 사용자가 방금 누른 이동이 조용히 사라진다.
+    if (stateRef.current.pendingMoves[last.id] !== undefined) {
+      toast.push({
+        tone: 'warning',
+        title: '이동이 진행 중입니다',
+        description: `${last.name} 님의 이동이 끝난 뒤에 되돌릴 수 있습니다.`,
+      })
+      return
+    }
+
+    if (applicant.stage === last.from) return
+
+    startMove(last.id, last.from, { isUndo: true })
+  }, [toast, startMove])
+
   /**
    * 큐 인스턴스는 ref에 담고 **effect에서 생성**한다.
    *
@@ -104,8 +163,6 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
    * `readVersion`이 `stateRef`를 캡처하니 렌더 중 ref 접근으로 판정될 수 있다는 지적이다.
    * 실제로는 요청 시점에만 읽지만, 규칙을 끄는 대신 생성 자체를 렌더 밖으로 옮겼다.
    */
-  const queueRef = useRef<MoveQueue | null>(null)
-
   useEffect(() => {
     queueRef.current = createMoveQueue({
       readVersion: (id) => stateRef.current.byId[id]?.version,
@@ -129,12 +186,7 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
         toast.push({
           tone: 'success',
           title: `${applicant.name} 님을 ${toLabel}(으)로 이동했습니다`,
-          action: {
-            label: '되돌리기',
-            onClick: () => {
-              undoRef.current?.()
-            },
-          },
+          action: { label: '되돌리기', onClick: undoLastMove },
         })
       },
 
@@ -186,56 +238,7 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
         }
       },
     })
-  }, [announce, toast])
-
-  const moveStage = useCallback((id: string, toStage: Stage) => {
-    const applicant = stateRef.current.byId[id]
-    if (applicant === undefined) return
-    // 같은 단계로의 이동은 서버에 보낼 필요가 없다.
-    if (applicant.stage === toStage) return
-
-    // 1) UI를 먼저 바꾼다. 스냅샷 캡처는 리듀서가 반영 전 상태에서 수행하고,
-    //    이미 진행 중인 이동이 있으면 기존 스냅샷을 유지한다.
-    dispatch({ type: 'MOVE_OPTIMISTIC', id, toStage })
-    // 2) 큐에 넣는다. 같은 카드는 순차 실행, 다른 카드는 병렬.
-    queueRef.current?.enqueue(id, toStage)
-  }, [])
-
-  /**
-   * 되돌리기.
-   *
-   * **로컬 상태만 되돌리면 안 된다.** 새로고침하면 서버 값이 되살아난다.
-   * 그래서 되돌리기도 같은 큐를 타는 진짜 이동이고, 15% 확률로 실패한다.
-   */
-  const undoLastMove = useCallback(() => {
-    const last = stateRef.current.lastMove
-    if (last === null) return
-
-    const applicant = stateRef.current.byId[last.id]
-    if (applicant === undefined) return
-
-    // 그 카드에 이동이 진행 중이면 되돌리기를 받지 않는다.
-    // 진행 중인 의도를 되돌리기가 가로채면 사용자가 방금 누른 이동이 조용히 사라진다.
-    if (stateRef.current.pendingMoves[last.id] !== undefined) {
-      toast.push({
-        tone: 'warning',
-        title: '이동이 진행 중입니다',
-        description: `${last.name} 님의 이동이 끝난 뒤에 되돌릴 수 있습니다.`,
-      })
-      return
-    }
-
-    if (applicant.stage === last.from) return
-
-    dispatch({ type: 'MOVE_OPTIMISTIC', id: last.id, toStage: last.from, isUndo: true })
-    queueRef.current?.enqueue(last.id, last.from)
-  }, [toast])
-
-  // 성공 토스트의 "되돌리기" 버튼이 참조한다. 큐 생성 effect보다 나중에 정의되므로 ref로 잇는다.
-  const undoRef = useRef<(() => void) | null>(null)
-  useEffect(() => {
-    undoRef.current = undoLastMove
-  }, [undoLastMove])
+  }, [announce, toast, undoLastMove])
 
   const dispatchFetched = useCallback((applicant: Applicant) => {
     dispatch({ type: 'APPLICANT_FETCHED', applicant })
