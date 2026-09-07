@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Applicant } from '../../domain/applicant'
@@ -245,5 +245,50 @@ describe('컬럼 접근성 이름', () => {
     await setup()
     expect(screen.getByRole('region', { name: '서류검토 3명' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '처우협의 0명' })).toBeInTheDocument()
+  })
+})
+
+describe('이동 메뉴의 렌더 위치', () => {
+  /**
+   * 가상 스크롤이 각 항목 `li`에 `transform`을 걸면 stacking context가 생겨
+   * 메뉴의 `z-index`가 그 안에 갇히고, 컬럼의 `overflow-y-auto`가 메뉴를 잘라낸다.
+   * 실제로 "메뉴가 뒤 카드 밑으로 깔리는" 버그로 나타났다.
+   *
+   * 페인트 순서 자체는 jsdom으로 검증할 수 없다. 대신 **원인이 되는 조건**을 고정한다 —
+   * 메뉴가 카드(그리고 컬럼) 바깥으로 나가 있는지.
+   */
+  it('메뉴는 카드 li 안이 아니라 document.body로 포털된다', async () => {
+    const user = userEvent.setup()
+    const { container } = await setup()
+
+    cardButton('서류일').focus()
+    await user.keyboard('m')
+
+    const menu = await screen.findByRole('menu', { name: '서류일 이동할 단계' })
+
+    expect(menu.parentElement).toBe(document.body)
+    // 카드 li 안에 있으면 조상의 transform/overflow에 갇힌다.
+    expect(container.querySelector('[data-card-id] [role="menu"]')).toBeNull()
+    // 컬럼(overflow 컨테이너) 안에 있어도 잘린다.
+    expect(container.querySelector('section [role="menu"]')).toBeNull()
+  })
+
+  it('포털 이후에도 마우스로 항목을 선택할 수 있다', async () => {
+    const user = userEvent.setup()
+    const { probe } = await setup()
+
+    await user.click(screen.getByRole('button', { name: '서류일 단계 이동' }))
+    const menu = await screen.findByRole('menu', { name: '서류일 이동할 단계' })
+
+    /*
+     * 바깥 클릭 판정이 컨테이너만 검사하면, 포털로 나간 메뉴 클릭이 "바깥"으로 잡혀
+     * mousedown 단계에서 닫히고 항목의 click이 아예 발생하지 않는다.
+     * user-event는 mousedown → mouseup → click 순서를 그대로 재현하므로 이 회귀를 잡는다.
+     */
+    await user.click(within(menu).getByRole('menuitem', { name: /면접/ }))
+
+    await waitFor(() => {
+      expect(probe.state().byId['s1']?.stage).toBe('interview')
+    })
   })
 })
