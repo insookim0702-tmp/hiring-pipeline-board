@@ -11,6 +11,13 @@ function normalize(applicants: Applicant[]): Pick<ApplicantsState, 'byId' | 'all
   return { byId, allIds }
 }
 
+function withoutPending(pending: ApplicantsState['pending'], id: string) {
+  if (pending[id] === undefined) return pending
+  const next = { ...pending }
+  delete next[id]
+  return next
+}
+
 export function applicantsReducer(
   state: ApplicantsState,
   action: ApplicantsAction,
@@ -30,6 +37,25 @@ export function applicantsReducer(
 
     case 'LOAD_ERROR':
       return { ...state, status: 'error', error: action.message }
+
+    case 'MOVE_START': {
+      // 이번 커밋은 낙관적 반영이 아니다. 서버 응답을 기다리는 표시만 남긴다.
+      // (UI를 먼저 바꾸는 건 다음 커밋)
+      if (state.byId[action.id] === undefined) return state
+      return { ...state, pending: { ...state.pending, [action.id]: true } }
+    }
+
+    case 'MOVE_SUCCESS': {
+      const { applicant } = action
+      return {
+        ...state,
+        byId: { ...state.byId, [applicant.id]: applicant },
+        pending: withoutPending(state.pending, applicant.id),
+      }
+    }
+
+    case 'MOVE_FAILURE':
+      return { ...state, pending: withoutPending(state.pending, action.id) }
 
     default:
       return state

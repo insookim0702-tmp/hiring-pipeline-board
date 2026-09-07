@@ -8,7 +8,8 @@ import {
   useRef,
   type ReactNode,
 } from 'react'
-import { listApplicants } from '../../mocks'
+import type { Stage } from '../../domain/applicant'
+import { listApplicants, moveApplicantStage } from '../../mocks'
 import { applicantsReducer } from './reducer'
 import { initialApplicantsState, type ApplicantsState } from './types'
 
@@ -23,6 +24,8 @@ const StateContext = createContext<ApplicantsState | null>(null)
 interface ApplicantsActions {
   /** 전체 목록을 다시 불러온다. 에러 화면의 "다시 시도"가 이걸 쓴다. */
   reload: () => void
+  /** 카드를 다른 단계로 옮긴다. */
+  moveStage: (id: string, toStage: Stage) => void
 }
 
 const ActionsContext = createContext<ApplicantsActions | null>(null)
@@ -59,11 +62,45 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
+  /**
+   * 최신 state를 담은 ref.
+   *
+   * `moveStage`는 요청을 보낼 때 그 카드의 현재 `version`을 알아야 한다.
+   * 그런데 `state`를 `useCallback` 의존성에 넣으면 상태가 바뀔 때마다 액션 객체가
+   * 새로 만들어지고, 그러면 액션만 쓰는 컴포넌트까지 전부 리렌더된다
+   * (= Context를 둘로 쪼갠 이유가 무의미해진다).
+   * 그래서 이벤트 핸들러에서만 읽는 최신 값은 ref로 우회한다.
+   */
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  const moveStage = useCallback((id: string, toStage: Stage) => {
+    const applicant = stateRef.current.byId[id]
+    if (applicant === undefined) return
+    // 같은 단계로의 이동은 서버에 보낼 필요가 없다.
+    if (applicant.stage === toStage) return
+
+    dispatch({ type: 'MOVE_START', id, toStage })
+
+    moveApplicantStage({ id, toStage, expectedVersion: applicant.version }).then(
+      (updated) => {
+        dispatch({ type: 'MOVE_SUCCESS', applicant: updated })
+      },
+      () => {
+        // 이번 커밋은 pending만 해제한다. 낙관적 반영이 없으니 되돌릴 것도 없다.
+        // 사용자 피드백(토스트)과 롤백은 다음 커밋.
+        dispatch({ type: 'MOVE_FAILURE', id })
+      },
+    )
+  }, [])
+
   useEffect(() => {
     load()
   }, [load])
 
-  const actions = useMemo<ApplicantsActions>(() => ({ reload: load }), [load])
+  const actions = useMemo<ApplicantsActions>(() => ({ reload: load, moveStage }), [load, moveStage])
 
   return (
     <StateContext.Provider value={state}>

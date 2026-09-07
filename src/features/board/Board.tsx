@@ -46,7 +46,13 @@ export function Board() {
             return (
               <Column key={stage} stage={stage} count={applicants.length}>
                 {applicants.map((applicant) => (
-                  <ApplicantCard key={applicant.id} applicant={applicant} />
+                  <ApplicantCard
+                    key={applicant.id}
+                    applicant={applicant}
+                    // 불리언으로 좁혀서 넘긴다. pending 객체를 그대로 넘기면
+                    // 다른 카드가 이동할 때마다 모든 카드의 prop이 바뀌어 memo가 깨진다.
+                    isPending={state.pending[applicant.id] === true}
+                  />
                 ))}
               </Column>
             )

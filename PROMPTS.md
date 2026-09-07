@@ -468,3 +468,99 @@ prefers-reduced-motion에서 스켈레톤 애니메이션 끄는 것 포함.
 
 **미검증**: 실제 스크린리더(NVDA 등)에서 `role="alert"`이 즉시 낭독되는지.
 DOM에 존재하는 것까지만 확인했다. → 커밋 10에서 접근성 트리로 재확인 예정.
+
+---
+
+## [stage-move] 단계 이동 + API persist
+
+### 프롬프트 1
+
+```
+단계 이동을 만든다. 드래그앤드롭 대신 명시적 액션 버튼 방식으로 간다
+(과제에서 택1 허용, 이유는 DECISIONS.md에 쓴다).
+
+- 카드에 "단계 이동" 트리거 → 이동 가능한 단계 목록 메뉴. 현재 단계는 disabled.
+- 선택하면 moveApplicantStage 호출, 성공 시 상태 갱신.
+  새로고침 후에도 유지되는지 확인 가능해야 한다.
+- 이번 커밋은 낙관적 업데이트가 아니다. 호출 → 대기 → 성공 시 반영.
+  대기 중에는 카드에 pending 표시.
+- 리듀서에 MOVE_START / MOVE_SUCCESS / MOVE_FAILURE 추가. 실제 롤백은 다음 커밋.
+- expectedVersion으로 현재 카드의 version을 넘겨라.
+
+메뉴는 일단 마우스로 동작하면 된다. 키보드는 a11y 커밋에서 제대로 한다.
+```
+
+### AI 출력 요지
+
+`state.pending`(id → true) 추가, 리듀서에 MOVE_START/SUCCESS/FAILURE,
+Provider에 `moveStage(id, toStage)` 액션, `StageMoveMenu.tsx`(드롭다운, 현재 단계 disabled,
+Esc·외부 클릭으로 닫힘), 카드 레이아웃을 2단(상세 영역 버튼 + 하단 배지/이동 메뉴)으로 변경.
+
+### 리뷰 / 검증
+
+**1) `moveStage`를 `useCallback`에 넣으면서 `state`를 의존성에 넣으면 안 된다**
+
+- **무엇이 문제였나**: `moveStage`는 요청 시 그 카드의 현재 `version`을 알아야 한다.
+  가장 자연스러운 코드는 `useCallback((id, stage) => {...}, [state])`인데,
+  그러면 상태가 바뀔 때마다 액션 객체가 새로 생성된다.
+  → 액션 Context 값이 매번 바뀌고 → **커밋 2에서 Context를 둘로 쪼갠 이유가 사라진다.**
+- **어떻게 알아냈나**: 액션을 추가하기 전에 의존성을 어떻게 쓸지 먼저 따져봤다.
+  Context 분리의 전제가 "액션 객체가 고정"이라는 걸 커밋 2에서 문서화해둔 덕에
+  바로 걸렸다.
+- **어떻게 고쳤나**: `stateRef`(useEffect로 갱신)를 두고 이벤트 핸들러에서만 읽는다.
+  `moveStage`의 의존성은 빈 배열이 되어 액션 객체가 영구 고정된다.
+  render 중 `ref.current = state` 대입이 아니라 `useEffect`를 쓴 이유도 적어뒀다
+  (동시성 렌더링에서 render 중 부수효과는 안전하지 않다).
+
+**2) `isPending`을 불리언으로 좁혀서 넘긴 것 — memo 유지의 핵심**
+
+- `<ApplicantCard pending={state.pending} />` 처럼 객체를 넘기면 **어떤 카드든**
+  이동할 때마다 `pending` 객체가 새 참조가 되어 카드 1,000장 전부 리렌더된다.
+  `isPending={state.pending[id] === true}`로 불리언으로 좁혀 넘겼다.
+- 같은 이유로 이동 콜백도 prop으로 내리지 않고 카드가 `useApplicantsActions()`로
+  직접 가져오게 했다. 부모가 인라인 화살표 함수를 내려주면 memo가 무력화된다.
+- **미검증**: 실제 리렌더 범위. 커밋 6에서 측정한다.
+
+**3) ESLint가 `react-hooks/set-state-in-effect`를 잡았다 — 실제로 고쳤다**
+
+- AI 초안은 "pending이 되면 열려 있던 메뉴를 닫는다"를 이렇게 썼다:
+  ```ts
+  useEffect(() => { if (isPending) setIsOpen(false) }, [isPending])
+  ```
+- `npm run lint`가 `react-hooks/set-state-in-effect` 에러로 거부했다.
+  린터 말이 맞다 — 이건 상태 동기화이고 렌더를 한 번 더 유발한다.
+- **어떻게 고쳤나**: 상태를 동기화하지 않고 **파생값으로 계산**했다.
+  ```ts
+  const isOpen = isOpenRequested && !isPending
+  ```
+  effect가 사라졌고 렌더도 한 번 덜 돈다. 린터를 disable 주석으로 막지 않았다.
+
+**4) 브라우저에서 실제로 확인한 것 (가장 중요: persist)**
+
+`?count=200&fail=0`으로 띄우고 첫 카드(윤도희, 서류검토)를 최종합격으로 이동:
+
+| 확인 항목 | 결과 |
+| --- | --- |
+| 메뉴 항목 | 5개, 현재 단계(`서류검토`)만 `disabled` + "현재" 표시 |
+| 요청 중 카드 위치 | **서류검토 그대로** (낙관적 반영이 아니므로 의도한 동작) |
+| 요청 중 표시 | 버튼 라벨 `이동 중…`, `disabled: true` |
+| 성공 후 카드 위치 | 최종합격 (19명 → 20명) |
+| localStorage | `stage: "hired"`, `version: 2`, `stageHistory.length: 2` |
+
+그리고 **새로고침 후 컬럼 건수**:
+```
+이동 전: 서류검토 89 / 최종합격 19
+새로고침 후: 서류검토 88 / 최종합격 20
+```
+→ mock API가 메모리만 갱신하고 localStorage 쓰기를 빼먹는 흔한 누락이 없음을 확인.
+(커밋 1에서 단위 테스트로도 고정해둔 항목을 UI 경로로 다시 확인한 것)
+
+**5) 이번 커밋의 의도적 미완성**
+
+- **실패 시 사용자 피드백이 없다.** `MOVE_FAILURE`는 pending만 해제하고 아무것도
+  알려주지 않는다. 낙관적 반영이 없으니 되돌릴 것도 없다. 토스트와 롤백은 커밋 6.
+- **연속 클릭을 UI로만 막는다.** pending 중에는 메뉴 버튼이 disabled다.
+  하지만 이건 진짜 해결이 아니다 — 액션 자체에는 직렬화가 없어서 프로그램적으로
+  빠르게 두 번 호출하면 version이 어긋난다. 커밋 11에서 큐로 해결한다.
+- 실패 경로는 브라우저에서 기본 15%를 기다리는 방식으로 확인하려다 시간이 너무 걸려
+  중단했다. 커밋 6에서 `?fail=1`로 강제해 검증한다.
