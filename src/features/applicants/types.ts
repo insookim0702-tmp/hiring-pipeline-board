@@ -29,6 +29,11 @@ export interface ApplicantsState {
   error: string | null
   /** 낙관적으로 반영했지만 서버 확정을 못 받은 이동들. */
   pendingMoves: Record<string, PendingMove>
+  /**
+   * id → 정규화된 검색 문자열(이름 + 직무).
+   * 로드 시점에 한 번 만들어 두고 검색에서 재사용한다.
+   */
+  searchIndex: Record<string, string>
 }
 
 export type ApplicantsAction =
@@ -53,6 +58,7 @@ export const initialApplicantsState: ApplicantsState = {
   allIds: [],
   error: null,
   pendingMoves: {},
+  searchIndex: {},
 }
 
 export function isMovePending(state: ApplicantsState, id: string): boolean {

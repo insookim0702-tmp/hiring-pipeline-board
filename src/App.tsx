@@ -4,6 +4,7 @@ import {
   useApplicantsActions,
   useApplicantsState,
 } from './features/applicants/ApplicantsProvider'
+import { FiltersProvider } from './features/filters/FiltersProvider'
 import { ToastProvider } from './features/feedback/ToastProvider'
 import { ToastViewport } from './features/feedback/ToastViewport'
 
@@ -59,7 +60,9 @@ export function App() {
     // useToastApi()를 쓸 수 있어야 한다.
     <ToastProvider>
       <ApplicantsProvider>
-        <AppShell />
+        <FiltersProvider>
+          <AppShell />
+        </FiltersProvider>
         <ToastViewport />
       </ApplicantsProvider>
     </ToastProvider>

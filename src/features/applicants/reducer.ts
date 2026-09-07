@@ -1,14 +1,21 @@
 import type { Applicant } from '../../domain/applicant'
+import { normalizeSearchText } from '../../lib/search'
 import type { ApplicantsAction, ApplicantsState, PendingMove } from './types'
 
-function normalize(applicants: Applicant[]): Pick<ApplicantsState, 'byId' | 'allIds'> {
+function normalize(
+  applicants: Applicant[],
+): Pick<ApplicantsState, 'byId' | 'allIds' | 'searchIndex'> {
   const byId: Record<string, Applicant> = {}
   const allIds: string[] = []
+  const searchIndex: Record<string, string> = {}
   for (const applicant of applicants) {
     byId[applicant.id] = applicant
     allIds.push(applicant.id)
+    // 검색 대상 문자열을 로드 시점에 한 번만 정규화한다.
+    // 매 입력마다 1,000건을 toLowerCase 하면 그게 그대로 입력 지연이 된다.
+    searchIndex[applicant.id] = normalizeSearchText(`${applicant.name} ${applicant.position}`)
   }
-  return { byId, allIds }
+  return { byId, allIds, searchIndex }
 }
 
 function withoutPending(

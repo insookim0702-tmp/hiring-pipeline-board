@@ -7,6 +7,7 @@ import {
   useApplicantsState,
 } from '../features/applicants/ApplicantsProvider'
 import type { ApplicantsState } from '../features/applicants/types'
+import { FiltersProvider } from '../features/filters/FiltersProvider'
 import { ToastProvider } from '../features/feedback/ToastProvider'
 import { ToastViewport } from '../features/feedback/ToastViewport'
 
@@ -61,8 +62,10 @@ export function renderBoard(): Harness {
   const result = render(
     <ToastProvider>
       <ApplicantsProvider>
-        <Capture />
-        <Board />
+        <FiltersProvider>
+          <Capture />
+          <Board />
+        </FiltersProvider>
         <ToastViewport />
       </ApplicantsProvider>
     </ToastProvider>,
