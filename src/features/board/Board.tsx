@@ -6,6 +6,7 @@ import { ApplicantCard } from './ApplicantCard'
 import { BoardError, ReloadErrorBanner } from './BoardError'
 import { BoardSkeleton } from './BoardSkeleton'
 import { Column } from './Column'
+import { isMovePending } from '../applicants/types'
 import { groupByStage } from './selectors'
 
 /**
@@ -51,7 +52,7 @@ export function Board() {
                     applicant={applicant}
                     // 불리언으로 좁혀서 넘긴다. pending 객체를 그대로 넘기면
                     // 다른 카드가 이동할 때마다 모든 카드의 prop이 바뀌어 memo가 깨진다.
-                    isPending={state.pending[applicant.id] === true}
+                    isPending={isMovePending(state, applicant.id)}
                   />
                 ))}
               </Column>

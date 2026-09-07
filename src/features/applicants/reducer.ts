@@ -1,5 +1,5 @@
 import type { Applicant } from '../../domain/applicant'
-import type { ApplicantsAction, ApplicantsState } from './types'
+import type { ApplicantsAction, ApplicantsState, PendingMove } from './types'
 
 function normalize(applicants: Applicant[]): Pick<ApplicantsState, 'byId' | 'allIds'> {
   const byId: Record<string, Applicant> = {}
@@ -11,11 +11,23 @@ function normalize(applicants: Applicant[]): Pick<ApplicantsState, 'byId' | 'all
   return { byId, allIds }
 }
 
-function withoutPending(pending: ApplicantsState['pending'], id: string) {
-  if (pending[id] === undefined) return pending
-  const next = { ...pending }
+function withoutPending(
+  pendingMoves: Record<string, PendingMove>,
+  id: string,
+): Record<string, PendingMove> {
+  if (pendingMoves[id] === undefined) return pendingMoves
+  const next = { ...pendingMoves }
   delete next[id]
   return next
+}
+
+/** 카드 한 장만 교체한다. 나머지 카드의 객체 참조는 그대로 유지되어 memo가 살아 있다. */
+function replaceApplicant(state: ApplicantsState, applicant: Applicant): ApplicantsState {
+  return {
+    ...state,
+    byId: { ...state.byId, [applicant.id]: applicant },
+    pendingMoves: withoutPending(state.pendingMoves, applicant.id),
+  }
 }
 
 export function applicantsReducer(
@@ -38,24 +50,40 @@ export function applicantsReducer(
     case 'LOAD_ERROR':
       return { ...state, status: 'error', error: action.message }
 
-    case 'MOVE_START': {
-      // 이번 커밋은 낙관적 반영이 아니다. 서버 응답을 기다리는 표시만 남긴다.
-      // (UI를 먼저 바꾸는 건 다음 커밋)
-      if (state.byId[action.id] === undefined) return state
-      return { ...state, pending: { ...state.pending, [action.id]: true } }
-    }
+    case 'MOVE_OPTIMISTIC': {
+      const current = state.byId[action.id]
+      if (current === undefined) return state
+      if (current.stage === action.toStage) return state
 
-    case 'MOVE_SUCCESS': {
-      const { applicant } = action
       return {
         ...state,
-        byId: { ...state.byId, [applicant.id]: applicant },
-        pending: withoutPending(state.pending, applicant.id),
+        // 낙관적 반영: 응답을 기다리지 않고 UI를 먼저 바꾼다.
+        byId: { ...state.byId, [action.id]: { ...current, stage: action.toStage } },
+        pendingMoves: {
+          ...state.pendingMoves,
+          [action.id]: {
+            // 반영 *전* 상태에서 캡처한다. 이 순서가 롤백의 정확성을 결정한다.
+            snapshot: current,
+            toStage: action.toStage,
+          },
+        },
       }
     }
 
-    case 'MOVE_FAILURE':
-      return { ...state, pending: withoutPending(state.pending, action.id) }
+    case 'MOVE_CONFIRMED':
+      return replaceApplicant(state, action.applicant)
+
+    case 'MOVE_ROLLBACK': {
+      const pending = state.pendingMoves[action.id]
+      // 이미 정리된 이동이면 아무것도 하지 않는다.
+      if (pending === undefined) return state
+      return replaceApplicant(state, pending.snapshot)
+    }
+
+    case 'MOVE_RESYNC':
+      // 롤백과 코드가 같아 보이지만 의미가 다르다. 되돌리는 게 아니라
+      // 서버가 알려준 현재 상태로 맞추는 것이다.
+      return replaceApplicant(state, action.applicant)
 
     default:
       return state

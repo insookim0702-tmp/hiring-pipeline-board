@@ -4,6 +4,8 @@ import {
   useApplicantsActions,
   useApplicantsState,
 } from './features/applicants/ApplicantsProvider'
+import { ToastProvider } from './features/feedback/ToastProvider'
+import { ToastViewport } from './features/feedback/ToastViewport'
 
 function AppHeader() {
   const { allIds, status } = useApplicantsState()
@@ -53,8 +55,13 @@ function AppShell() {
 
 export function App() {
   return (
-    <ApplicantsProvider>
-      <AppShell />
-    </ApplicantsProvider>
+    // ToastProvider가 바깥이다. ApplicantsProvider가 실패 피드백을 띄우려면
+    // useToastApi()를 쓸 수 있어야 한다.
+    <ToastProvider>
+      <ApplicantsProvider>
+        <AppShell />
+        <ToastViewport />
+      </ApplicantsProvider>
+    </ToastProvider>
   )
 }

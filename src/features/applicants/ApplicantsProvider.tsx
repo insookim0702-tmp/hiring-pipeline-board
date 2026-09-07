@@ -9,7 +9,9 @@ import {
   type ReactNode,
 } from 'react'
 import type { Stage } from '../../domain/applicant'
-import { listApplicants, moveApplicantStage } from '../../mocks'
+import { stageLabel } from '../../domain/stages'
+import { ConflictError, listApplicants, moveApplicantStage } from '../../mocks'
+import { useToastApi } from '../feedback/ToastProvider'
 import { applicantsReducer } from './reducer'
 import { initialApplicantsState, type ApplicantsState } from './types'
 
@@ -32,6 +34,7 @@ const ActionsContext = createContext<ApplicantsActions | null>(null)
 
 export function ApplicantsProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(applicantsReducer, initialApplicantsState)
+  const toast = useToastApi()
 
   /**
    * 진행 중인 로드의 순번. 응답이 도착했을 때 이 값과 다르면 낡은 응답이므로 버린다.
@@ -76,25 +79,51 @@ export function ApplicantsProvider({ children }: { children: ReactNode }) {
     stateRef.current = state
   }, [state])
 
-  const moveStage = useCallback((id: string, toStage: Stage) => {
-    const applicant = stateRef.current.byId[id]
-    if (applicant === undefined) return
-    // 같은 단계로의 이동은 서버에 보낼 필요가 없다.
-    if (applicant.stage === toStage) return
+  const moveStage = useCallback(
+    (id: string, toStage: Stage) => {
+      const applicant = stateRef.current.byId[id]
+      if (applicant === undefined) return
+      // 같은 단계로의 이동은 서버에 보낼 필요가 없다.
+      if (applicant.stage === toStage) return
 
-    dispatch({ type: 'MOVE_START', id, toStage })
+      const name = applicant.name
+      const fromLabel = stageLabel(applicant.stage)
+      const toLabel = stageLabel(toStage)
 
-    moveApplicantStage({ id, toStage, expectedVersion: applicant.version }).then(
-      (updated) => {
-        dispatch({ type: 'MOVE_SUCCESS', applicant: updated })
-      },
-      () => {
-        // 이번 커밋은 pending만 해제한다. 낙관적 반영이 없으니 되돌릴 것도 없다.
-        // 사용자 피드백(토스트)과 롤백은 다음 커밋.
-        dispatch({ type: 'MOVE_FAILURE', id })
-      },
-    )
-  }, [])
+      // 1) UI를 먼저 바꾼다. 스냅샷 캡처는 리듀서가 반영 전 상태에서 수행한다.
+      dispatch({ type: 'MOVE_OPTIMISTIC', id, toStage })
+
+      // 2) 서버에 보낸다. 실패하면 되돌린다.
+      moveApplicantStage({ id, toStage, expectedVersion: applicant.version }).then(
+        (updated) => {
+          dispatch({ type: 'MOVE_CONFIRMED', applicant: updated })
+        },
+        (error: unknown) => {
+          if (error instanceof ConflictError) {
+            // 버전 충돌: 롤백이 아니라 서버 상태로 재동기화한다.
+            // 내가 들고 있던 스냅샷도 이미 낡았기 때문이다.
+            dispatch({ type: 'MOVE_RESYNC', applicant: error.current })
+            toast.push({
+              tone: 'warning',
+              title: `${name} 님의 단계가 이미 변경되었습니다`,
+              description: `다른 변경이 먼저 반영되어 ${stageLabel(error.current.stage)}(으)로 맞췄습니다.`,
+            })
+            return
+          }
+
+          dispatch({ type: 'MOVE_ROLLBACK', id })
+          toast.push({
+            tone: 'error',
+            title: `${name} 님을 ${toLabel}(으)로 옮기지 못했습니다`,
+            description: `${fromLabel}(으)로 되돌렸습니다. ${
+              error instanceof Error ? error.message : '알 수 없는 오류'
+            }`,
+          })
+        },
+      )
+    },
+    [toast],
+  )
 
   useEffect(() => {
     load()
