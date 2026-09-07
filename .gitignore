@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+
+# 작업용 프롬프트 플레이북 (제출물 아님)
+.local/
+
+.DS_Store
+*.log
