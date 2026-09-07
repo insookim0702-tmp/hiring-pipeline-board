@@ -112,3 +112,105 @@ Tailwind는 v4의 `@tailwindcss/vite` 플러그인 + CSS에 `@import 'tailwindcs
 **최종 상태**: `npm run build` / `test` / `lint` 3개 모두 통과.
 
 **미검증**: `npm run dev`의 HMR 동작. (dev 서버는 이후 UI 커밋에서 실제로 띄워 확인할 예정)
+
+---
+
+## [mock-api] 목 API 자체 구현
+
+### 프롬프트 1
+
+```
+mock API를 자체 구현한다. 실제 백엔드는 없다.
+
+도메인
+- Applicant: id, name, position(직무), appliedAt(지원일), stage, version,
+  상세용 필드 email, phone, experienceYears, resumeSummary, memo
+- Stage: 'screening'(서류검토) | 'interview'(면접) | 'offer'(처우협의)
+  | 'hired'(최종합격) | 'rejected'(불합격)
+
+mock 서버 (src/mocks/)
+- 모든 응답에 200~800ms 랜덤 지연
+- 약 15% 확률로 실패
+- 저장소는 localStorage. 새로고침 후에도 이동 결과가 유지돼야 한다.
+- 시드 고정 PRNG로 지원자를 결정론적으로 생성. 건수는 200 / 1000 전환 가능하게.
+- 엔드포인트:
+  listApplicants()
+  getApplicant(id)
+  moveApplicantStage({ id, toStage, expectedVersion })
+- moveApplicantStage는 expectedVersion이 서버 version과 다르면
+  409 개념의 ConflictError를 던지고 서버의 현재 상태를 함께 담아 반환한다.
+  성공하면 version을 +1 한다.
+- 지연과 실패확률을 테스트에서 강제 주입/고정할 수 있게 설계해라.
+  전역 Math.random 몽키패치 말고 명시적 config 주입 방식으로.
+
+한글 이름과 직무는 그럴듯하게 생성. 지원일은 최근 90일 범위.
+```
+
+### AI 출력 요지
+
+`src/domain/applicant.ts`(타입·STAGES), `src/mocks/`에
+`random.ts`(mulberry32 PRNG), `config.ts`(주입 가능한 설정),
+`seed.ts`(결정론적 생성), `store.ts`(메모리 + localStorage), `errors.ts`
+(MockApiError/NetworkError/NotFoundError/ConflictError), `api.ts`(3개 엔드포인트) 생성.
+설정은 `configureMock(patch)` / `resetMockConfig()`로 주입하고,
+실패 판정은 `failureRate`가 0이나 1이면 난수를 아예 건드리지 않게 해서
+테스트가 난수 스텁 없이도 결정론적이 되도록 했다.
+
+### 리뷰 / 검증
+
+**1) 이름 음절 배열에 한글 아닌 문자가 섞여 있었다**
+
+- **무엇이 문제였나**: `GIVEN_FIRST`에 `'نا'`(아랍 문자), `GIVEN_SECOND`에 `'訓'`(한자)이
+  들어가 있었다. 그대로 두면 "김نا훈" 같은 이름이 생성된다.
+- **어떻게 알아냈나**: 눈으로 훑다가 발견하고, 확인 사살로 파일 전체를 코드포인트로 스캔했다.
+  `한글 음절(AC00~D7A3)이 아닌 U+2500 이상 문자`를 뽑는 스크립트를 돌려 0개가 될 때까지 고쳤다.
+- **판단**: 수정. 이런 종류는 리뷰로만 잡으면 놓치기 쉬워서, 사람 눈이 아니라 스캔으로 확인했다.
+
+**2) 테스트가 실제로 이빨이 있는지 — 구현을 일부러 깨서 확인했다 (변이 테스트)**
+
+테스트 17개가 **첫 실행에 전부 통과**했다. 이건 좋은 신호가 아니라 의심할 지점이다.
+테스트가 느슨해서 통과한 건지 구별해야 하므로, 구현을 의도적으로 망가뜨려
+테스트가 잡아내는지 확인했다.
+
+- 변이 A: `nextLatencyMs`를 `minLatencyMs + random()*(max-min)` →
+  `random() * maxLatencyMs`로 바꿈 (= 흔한 실수. 0ms가 나와 "200~800ms" 요구 위반)
+  → **2개 실패**: `기본 설정에서 항상 200~800ms 범위다`, `난수가 0이어도 하한(200ms)을 지킨다`
+- 변이 B: `store.readAll()`의 방어 복사(`.map(a => ({...a}))`)를 제거
+  → **1개 실패**: `밖으로 나간 객체를 변형해도 저장소가 오염되지 않는다`
+
+둘 다 잡혔으므로 해당 테스트는 유효하다. 변이 후 원복하고 전체 재실행해 17/17 통과 확인.
+
+**3) 실패 판정 시점을 "쓰기 전"으로 한정한 것 — AI 제안 수용, 다만 이유를 따져봤다**
+
+- mock 서버가 실패할 때 (a) 요청이 서버에 닿지 못함 (b) 서버는 처리했는데 응답이 유실됨
+  두 가지가 가능하다. AI 초안은 (a)였다.
+- **검증**: (b)를 흉내내면 클라이언트가 반영 여부를 알 방법이 없어 낙관적 롤백이
+  정답 없는 문제가 된다. 과제 요구는 "실패 시 원상 복구"이므로 (a)가 요구에 맞다.
+- **채택**하고 `api.ts`의 `simulateNetwork` 주석에 이 판단을 남겼다.
+  `실패한 요청은 서버 상태를 바꾸지 않는다` 테스트로 못 박아뒀다.
+
+**4) 직접 확인한 나머지 동작**
+
+`npm run test` 로 실제 검증한 항목:
+- 같은 `(seed, count)` → 결과 완전 일치 / 다른 seed → 불일치
+- 기본 설정에서 지연이 2,000회 모두 200~800ms 범위
+- `failureRate: 1` → 100회 모두 실패, `0` → 100회 모두 성공
+- 기본 실패율 20,000회 표본에서 0.14~0.16 (요구 "약 15%") 
+- 이동 성공 시 `version` +1, `stageHistory` +1, `from`/`to` 정확
+- **이동 결과가 localStorage에 실제로 쓰이는지** — `localStorage`를 직접 파싱해서 확인.
+  (mock API가 메모리만 갱신하고 영속화를 빼먹는 건 흔한 누락이라 별도 테스트로 고정)
+- 낡은 `expectedVersion` → `ConflictError`, `status 409`, `current`에 서버 최신 상태 포함
+- 같은 단계로의 이동은 `version`을 올리지 않음
+- 실패한 이동 후 서버 상태 불변
+
+**5) 계획에서 벗어난 점 (의도적)**
+
+- `stageHistory`를 커밋 9(상세 패널)에서 추가하려던 계획을 **커밋 1로 앞당겼다.**
+  이유: 1,000건이 이미 localStorage에 쓰인 뒤 필드를 추가하면 스키마 마이그레이션이
+  필요해진다. `moveApplicantStage`가 유일한 변경 지점이니 처음부터 기록하는 게 싸다.
+  대신 스키마 키에 버전을 박아(`hpb.applicants.v1`) 나중에 바꿀 때 옛 데이터를
+  버릴 수 있게 했다.
+- mock API 테스트를 커밋 7(테스트 커밋)까지 미루지 않고 이 커밋에 포함했다.
+  mock 서버가 이후 모든 기능의 토대이므로, 여기가 틀리면 뒤가 전부 틀린다.
+
+**미검증**: 브라우저에서의 실제 새로고침 유지. (다음 커밋에서 UI가 붙으면 확인)
