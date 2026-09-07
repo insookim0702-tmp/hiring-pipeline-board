@@ -3,7 +3,7 @@
 지원자를 채용 단계별로 관리하는 칸반 보드. 서류검토 → 면접 → 처우협의 → 최종합격 / 불합격.
 백엔드 없이 **자체 구현한 mock API**(지연 200~800ms, 실패 약 15%)로 동작한다.
 
-**배포**: https://hiring-pipeline-board-red.vercel.app
+**배포**: https://hiring-pipeline-board-insoo.vercel.app
 
 - 설계 결정과 트레이드오프: [DECISIONS.md](./DECISIONS.md)
 - AI 협업 프롬프트·검증 기록: [PROMPTS.md](./PROMPTS.md)
@@ -47,7 +47,7 @@ npm run dev
 
 ### 검증용 URL 파라미터
 
-배포본에서도 그대로 동작한다. 예: <https://hiring-pipeline-board-red.vercel.app/?count=1000>
+배포본에서도 그대로 동작한다. 예: <https://hiring-pipeline-board-insoo.vercel.app/?count=1000>
 
 
 15% 실패는 "때때로" 일어나서 에러 UI를 눈으로 확인하기 어렵다. 재현할 수 있게 열어 두었다.
